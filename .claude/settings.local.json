@@ -71,7 +71,9 @@
       "Bash(.venv/bin/python -m pytest tests/ -x -q 2>&1 | tail -30)",
       "Bash(.venv/bin/python -m pytest tests/test_episode_manager.py tests/test_preparation_workflow.py -x -q 2>&1)",
       "Bash(.venv/bin/python -m pytest tests/test_episode_manager.py -x -q 2>&1)",
-      "Bash(.venv/bin/python -m pytest tests/test_preparation_workflow.py -x -q 2>&1)"
+      "Bash(.venv/bin/python -m pytest tests/test_preparation_workflow.py -x -q 2>&1)",
+      "Bash(find /home/runner/workspace -name \"requirements*.txt\" -o -name \"setup.py\" -o -name \"pyproject.toml\" | xargs cat 2>/dev/null | head -100)",
+      "Bash(find /home/runner/workspace -maxdepth 2 -name \"pyproject.toml\" -o -name \"setup.py\" | grep -v \".venv\\\\|node_modules\\\\|.cache\" | xargs cat 2>/dev/null)"
     ]
   }
 }
