@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import dotenv_values
 from pydantic_settings import BaseSettings
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     # Gmail OAuth2
     gmail_credentials_json: str = ""
     gmail_token_json: str = ""
-    gmail_label: str = "Newsletters"
+    gmail_label: str = ""
 
     # Google account (for NotebookLM session — login is manual)
     google_account_email: str = ""
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Seattle timezone — handles PST/PDT transitions automatically
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,11 @@ class ShowConfig:
     google_account_email: str
     google_account_password: str
     output_dir: Path
+
+    @property
+    def is_legacy(self) -> bool:
+        """True if this show uses the legacy flat output directory."""
+        return self.output_dir == Path("output")
 
     @property
     def format(self) -> ShowFormat:

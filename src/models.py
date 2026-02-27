@@ -1,7 +1,7 @@
 """Data models for the Noctua pipeline."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -33,7 +33,7 @@ class DailyDigest:
 
     articles: list[Article]
     total_words: int
-    date: datetime = field(default_factory=datetime.now)
+    date: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass

@@ -60,7 +60,7 @@ def _build_feed_generator(episodes: list[dict], show: ShowConfig | None = None) 
     show_id = show.show_id if show else "hootline"
 
     # In legacy mode (output_dir == "output"), use root URLs for backward compat
-    is_legacy = show and show.output_dir == Path("output")
+    is_legacy = show and show.is_legacy
     if is_legacy:
         feed_url = f"{settings.base_url}/feed.xml"
         episode_url_prefix = f"{settings.base_url}/episodes"

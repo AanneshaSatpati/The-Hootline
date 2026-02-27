@@ -15,37 +15,26 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
-from config import ShowConfig, ShowFormat, SHOW_FORMATS, settings, shows
+from config import LOCAL_TZ, ShowConfig, ShowFormat, SHOW_FORMATS, settings, shows
 from src import database, episode_manager, feed_builder
+from src.episode_manager import _ffmpeg_path
 from src.models import CompiledDigest
 
 ACCEPTED_AUDIO_EXTENSIONS = {".mp3", ".m4a", ".wav", ".ogg", ".webm"}
-def _ffmpeg_path() -> str:
-    """Resolve ffmpeg: system PATH first, then bundled imageio-ffmpeg fallback."""
-    path = shutil.which("ffmpeg")
-    if path:
-        try:
-            subprocess.run([path, "-version"], capture_output=True, timeout=5)
-            return path
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-    try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except ImportError:
-        return "ffmpeg"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-PST = timezone(timedelta(hours=-8))
+# Backward-compat alias — tests import PST from main
+PST = LOCAL_TZ
 
 
 def _pst_now() -> datetime:
-    """Return the current datetime in PST (UTC-8)."""
-    return datetime.now(PST)
+    """Return the current datetime in local Seattle time (PST/PDT)."""
+    return datetime.now(LOCAL_TZ)
 
 
 def _iso_week_label(dt: datetime) -> str:
@@ -164,19 +153,10 @@ async def _run_generation(state: ShowState) -> None:
         try:
             await _maybe_monday_cleanup(state)
 
-            original_save = database.save_digest
-            database.save_digest = lambda *args, **kwargs: None
-            try:
-                def _run_sync():
-                    loop = asyncio.new_event_loop()
-                    try:
-                        return loop.run_until_complete(generate_digest_only(show=show))
-                    finally:
-                        loop.close()
+            def _run_sync():
+                return asyncio.run(generate_digest_only(show=show, save_to_db=False))
 
-                result = await asyncio.to_thread(_run_sync)
-            finally:
-                database.save_digest = original_save
+            result = await asyncio.to_thread(_run_sync)
 
             if state.preparation_cancelled:
                 state.preparation_digest = None
@@ -405,7 +385,7 @@ async def api_latest_episode(show_id: str = Query(default="")):
     db_path = show.db_path
 
     # Determine URL prefix for episodes
-    is_legacy = show.output_dir == Path("output")
+    is_legacy = show.is_legacy
     ep_url_prefix = "/episodes" if is_legacy else f"/{show.show_id}/episodes"
 
     episode_data = None
@@ -428,11 +408,11 @@ async def api_latest_episode(show_id: str = Query(default="")):
             has_ep = database.has_episode(latest_digest["date"], db_path=db_path)
             seg_counts = json.loads(latest_digest.get("segment_counts") or "{}")
 
-            # Digest download URL
+            # Digest view URL (HTML page)
             if is_legacy:
-                dl_url = f"/digests/{latest_digest['date']}.md"
+                dl_url = f"/digests/{latest_digest['date']}.html"
             else:
-                dl_url = f"/{show.show_id}/digests/{latest_digest['date']}.md"
+                dl_url = f"/{show.show_id}/digests/{latest_digest['date']}.html"
 
             digest_meta = {
                 "date": latest_digest["date"],
@@ -606,16 +586,15 @@ async def api_history(show_id: str = Query(default="")):
     show = state.show
     db_path = show.db_path
     episodes_dir = show.episodes_dir
-    is_legacy = show.output_dir == Path("output")
+    is_legacy = show.is_legacy
 
-    digests = database.list_digests(limit=100, db_path=db_path)
+    digests = database.list_digests_with_char_count(limit=100, db_path=db_path)
     episodes_list = database.list_episodes(db_path=db_path)
     ep_by_date = {ep["date"]: ep for ep in episodes_list}
 
     rows = []
     for d in digests:
         ep = ep_by_date.get(d["date"])
-        full = database.get_digest(d["date"], db_path=db_path)
         gcs_url = ep.get("gcs_url", "") if ep else ""
         local_file = episodes_dir / f"noctua-{d['date']}.mp3"
         has_audio = bool(gcs_url) or local_file.exists()
@@ -623,7 +602,7 @@ async def api_history(show_id: str = Query(default="")):
             "date": d["date"],
             "article_count": d["article_count"],
             "total_words": d["total_words"],
-            "total_chars": len(full["markdown_text"]) if full else 0,
+            "total_chars": d.get("total_chars", 0),
             "email_count": d.get("email_count", 0),
             "topics_summary": d["topics_summary"],
             "has_digest": True,
@@ -709,18 +688,182 @@ async def api_download_export(filename: str, show_id: str = Query(default="")):
     if not zip_path.exists():
         return JSONResponse({"error": "Export not found."}, status_code=404)
 
-    content = zip_path.read_bytes()
-    zip_path.unlink()
-    logger.info("Served and deleted export: %s", filename)
-
-    return Response(
-        content=content,
+    logger.info("Serving export (will delete after): %s", filename)
+    return FileResponse(
+        path=str(zip_path),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
+        background=BackgroundTask(lambda p: p.unlink(missing_ok=True), zip_path),
     )
 
 
 # --- Digest downloads ---
+
+def _md_to_html(markdown_text: str) -> str:
+    """Convert markdown text to simple HTML (no external dependencies)."""
+    import html as html_mod
+    lines = markdown_text.split("\n")
+    out: list[str] = []
+    in_paragraph = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Horizontal rule
+        if stripped in ("---", "***", "___"):
+            if in_paragraph:
+                out.append("</p>")
+                in_paragraph = False
+            out.append("<hr>")
+            continue
+
+        # Headings
+        if stripped.startswith("#"):
+            if in_paragraph:
+                out.append("</p>")
+                in_paragraph = False
+            level = 0
+            for ch in stripped:
+                if ch == "#":
+                    level += 1
+                else:
+                    break
+            level = min(level, 6)
+            text = html_mod.escape(stripped[level:].strip())
+            # Bold in headings
+            import re as _re
+            text = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+            out.append(f"<h{level}>{text}</h{level}>")
+            continue
+
+        # Empty line — close paragraph
+        if not stripped:
+            if in_paragraph:
+                out.append("</p>")
+                in_paragraph = False
+            continue
+
+        # Bold/italic inline
+        escaped = html_mod.escape(stripped)
+        import re as _re
+        escaped = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+        escaped = _re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
+
+        if not in_paragraph:
+            out.append("<p>")
+            in_paragraph = True
+        else:
+            out.append("<br>")
+        out.append(escaped)
+
+    if in_paragraph:
+        out.append("</p>")
+
+    return "\n".join(out)
+
+
+def _render_digest_html(digest: dict, show_title: str) -> str:
+    """Render a digest as a styled HTML page."""
+    date = digest["date"]
+    content_html = _md_to_html(digest["markdown_text"])
+    topics = digest.get("topics_summary", "")
+    article_count = digest.get("article_count", 0)
+    total_words = digest.get("total_words", 0)
+
+    return f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{show_title} — {date}</title>
+<style>
+  :root {{
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2e3140;
+    --text: #e4e4e7;
+    --text-dim: #8b8d98;
+    --accent: #c4a052;
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; padding: 0;
+  }}
+  header {{
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }}
+  header h1 {{ font-size: 18px; font-weight: 600; color: var(--accent); letter-spacing: 2px; }}
+  header .meta {{ font-size: 11px; color: var(--text-dim); }}
+  .container {{
+    max-width: 820px; margin: 0 auto; padding: 32px 24px;
+  }}
+  .stats {{
+    font-size: 12px; color: var(--text-dim); margin-bottom: 24px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }}
+  .content h1 {{ font-size: 22px; font-weight: 700; color: var(--accent); margin: 28px 0 12px; }}
+  .content h2 {{ font-size: 18px; font-weight: 600; color: var(--accent); margin: 24px 0 10px; }}
+  .content h3 {{ font-size: 15px; font-weight: 600; color: var(--text); margin: 20px 0 8px; }}
+  .content h4, .content h5, .content h6 {{ font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 16px 0 6px; }}
+  .content p {{ font-size: 13px; line-height: 1.7; margin-bottom: 12px; color: var(--text); }}
+  .content strong {{ color: var(--accent); }}
+  .content em {{ color: var(--text-dim); font-style: italic; }}
+  .content hr {{ border: none; border-top: 1px solid var(--border); margin: 20px 0; }}
+  footer {{
+    border-top: 1px solid var(--border);
+    padding: 16px 24px; text-align: center;
+    font-size: 11px; color: var(--text-dim);
+  }}
+</style>
+</head>
+<body>
+  <header>
+    <h1>{show_title}</h1>
+    <span class="meta">{date}</span>
+  </header>
+  <div class="container">
+    <div class="stats">{article_count} articles &middot; {total_words:,} words &middot; {topics}</div>
+    <div class="content">
+      {content_html}
+    </div>
+  </div>
+  <footer>Generated by Noctua</footer>
+</body>
+</html>"""
+
+
+@app.get("/digests/{date}.html")
+async def digest_html_view(date: str, show_id: str = Query(default="")) -> Response:
+    """Serve a digest as a styled HTML page (legacy route)."""
+    if ".." in date or "/" in date:
+        return Response(content="Invalid date.", status_code=400)
+    state = _resolve_show(show_id)
+    digest = database.get_digest(date, db_path=state.show.db_path)
+    if not digest:
+        return Response(content="Digest not found.", status_code=404)
+    html = _render_digest_html(digest, state.show.podcast_title)
+    return HTMLResponse(content=html)
+
+
+@app.get("/{show_id}/digests/{date}.html")
+async def show_digest_html_view(show_id: str, date: str) -> Response:
+    """Serve a show-specific digest as a styled HTML page."""
+    if ".." in date or "/" in date:
+        return Response(content="Invalid date.", status_code=400)
+    if show_id not in _show_states:
+        return Response(content="Show not found.", status_code=404)
+    state = _show_states[show_id]
+    digest = database.get_digest(date, db_path=state.show.db_path)
+    if not digest:
+        return Response(content="Digest not found.", status_code=404)
+    html = _render_digest_html(digest, state.show.podcast_title)
+    return HTMLResponse(content=html)
+
 
 @app.get("/digests/{date}.md")
 async def digest_download(date: str, show_id: str = Query(default="")) -> Response:
@@ -850,12 +993,19 @@ def _serve_episode(episodes_dir: Path, filename: str, request: Request) -> Respo
 # --- Generation & Preparation ---
 
 
-@app.get("/api/cron/generate")
-async def api_cron_generate(secret: str = Query(""), show_id: str = Query(default="")):
+@app.api_route("/api/cron/generate", methods=["GET", "POST"])
+async def api_cron_generate(request: Request, secret: str = Query(""), show_id: str = Query(default="")):
     """External cron trigger for daily digest generation.
 
     When show_id is omitted, triggers all shows. When provided, triggers only that show.
+    Accepts secret via query param or Authorization: Bearer header.
     """
+    # Also accept secret via Authorization header (more secure than query string)
+    if not secret:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            secret = auth_header[7:]
+
     if not settings.cron_secret:
         return JSONResponse(
             {"error": "CRON_SECRET not configured on server."},
@@ -990,7 +1140,7 @@ async def api_publish_episode(date: str = Form(""), show_id: str = Form("")):
     state.preparation_digest = None
 
     # Determine feed URL
-    is_legacy = show.output_dir == Path("output")
+    is_legacy = show.is_legacy
     feed_url = f"{settings.base_url}/feed.xml" if is_legacy else f"{settings.base_url}/{show.show_id}/feed.xml"
 
     return JSONResponse({
@@ -1052,7 +1202,7 @@ async def _handle_upload(file: UploadFile, date: str, show_id: str):
     state = _resolve_show(show_id)
     show = state.show
     episodes_dir = show.episodes_dir
-    is_legacy = show.output_dir == Path("output")
+    is_legacy = show.is_legacy
     ep_url_prefix = "/episodes" if is_legacy else f"/{show.show_id}/episodes"
 
     if not date or not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
@@ -1614,7 +1764,7 @@ async function loadLatest() {
     h += '<div class="digest-stats">' + d.article_count + ' articles &middot; ' + (d.email_count||0) + ' emails &middot; ' + d.total_words.toLocaleString() + ' words</div>';
     h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
     h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
-    h += '<a class="dl-btn" href="' + d.download_url + '" download title="Download .md">&#x2B07;</a></div></div></div>';
+    h += '<a class="dl-btn" href="' + d.download_url.replace('.html', '.md') + '" download title="Download .md">&#x2B07;</a></div></div></div>';
     h += topicBreakdown(d);
   }
 
@@ -1874,9 +2024,10 @@ async function loadHistory() {
       const dt = new Date(r.date+'T00:00:00');
       const dd = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
 
-      const digestUrl = '/digests/'+r.date+'.md?show_id='+encodeURIComponent(SHOW_ID);
+      const digestHtmlUrl = '/digests/'+r.date+'.html?show_id='+encodeURIComponent(SHOW_ID);
+      const digestMdUrl = '/digests/'+r.date+'.md?show_id='+encodeURIComponent(SHOW_ID);
       const digestC = r.has_digest
-        ? '<span class="digest-btns" style="gap:4px;"><button class="copy-url-btn" style="padding:4px 8px;font-size:11px;" onclick="copyDigestUrl(\\''+digestUrl+'\\', this)">Copy URL</button><a class="h-link digest" href="'+digestUrl+'" download title="Download .md">&#x2B07;</a></span>'
+        ? '<span class="digest-btns" style="gap:4px;"><button class="copy-url-btn" style="padding:4px 8px;font-size:11px;" onclick="copyDigestUrl(\\''+digestHtmlUrl+'\\', this)">Copy URL</button><a class="h-link digest" href="'+digestMdUrl+'" download title="Download .md">&#x2B07;</a></span>'
         : '<span class="h-badge no">none</span>';
 
       let audioC;

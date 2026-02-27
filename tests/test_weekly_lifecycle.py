@@ -21,7 +21,8 @@ from src import database
 def test_pst_now():
     from main import _pst_now, PST
     now = _pst_now()
-    assert now.tzinfo == PST
+    # PST is now a ZoneInfo; verify same object identity
+    assert now.tzinfo is PST
 
 
 def test_iso_week_label():

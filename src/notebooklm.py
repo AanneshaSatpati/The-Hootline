@@ -2,11 +2,12 @@
 
 import asyncio
 import logging
+import tempfile
 from pathlib import Path
 
 from playwright.async_api import Page, async_playwright
 
-from config import settings
+from config import ShowConfig, settings
 from src.exceptions import (
     AudioGenerationTimeoutError,
     NotebookLMError,
@@ -33,20 +34,27 @@ NIX_CHROMIUM_PATH = (
 class NotebookLMAutomator:
     """Automates NotebookLM Audio Overview generation via Playwright."""
 
-    async def generate_episode(self, digest: CompiledDigest) -> Path:
+    async def generate_episode(
+        self, digest: CompiledDigest, show: ShowConfig | None = None
+    ) -> Path:
         """Full pipeline: upload digest, generate audio, download MP3.
 
         Args:
             digest: The compiled daily digest to upload.
+            show: Show-specific config for notebook URL and output paths.
 
         Returns:
             Path to the downloaded MP3 file.
         """
+        # Resolve output directories from show config or defaults
+        self._debug_dir = show.output_dir / "debug" if show else Path("output/debug")
+        self._episodes_dir = show.episodes_dir if show else Path("output/episodes")
+
         user_data_dir = str(Path(settings.chrome_user_data_dir).expanduser())
         Path(user_data_dir).mkdir(parents=True, exist_ok=True)
 
         # Ensure debug screenshot dir exists
-        Path("output/debug").mkdir(parents=True, exist_ok=True)
+        self._debug_dir.mkdir(parents=True, exist_ok=True)
 
         async with async_playwright() as p:
             # Use Nix-provided Chromium if available, fall back to default
@@ -69,7 +77,7 @@ class NotebookLMAutomator:
 
             try:
                 # Step 1: Navigate to notebook
-                await self._navigate_to_notebook(page)
+                await self._navigate_to_notebook(page, show=show)
 
                 # Step 2: Check session is valid
                 await self._check_session(page)
@@ -100,14 +108,18 @@ class NotebookLMAutomator:
 
             except (NotebookLMError, SessionExpiredError):
                 try:
-                    await page.screenshot(path=f"output/debug/error-{digest.date}.png")
+                    await page.screenshot(
+                        path=str(self._debug_dir / f"error-{digest.date}.png")
+                    )
                 except Exception:
                     pass
                 raise
 
             except Exception as e:
                 try:
-                    await page.screenshot(path=f"output/debug/error-{digest.date}.png")
+                    await page.screenshot(
+                        path=str(self._debug_dir / f"error-{digest.date}.png")
+                    )
                 except Exception:
                     pass
                 raise NotebookLMError(f"Audio generation failed: {e}") from e
@@ -144,9 +156,13 @@ class NotebookLMAutomator:
             f"Could not find {description} with any selector: {selectors}"
         )
 
-    async def _navigate_to_notebook(self, page: Page) -> None:
+    async def _navigate_to_notebook(
+        self, page: Page, show: ShowConfig | None = None
+    ) -> None:
         """Navigate to the NotebookLM notebook URL."""
-        notebook_url = settings.notebooklm_notebook_url
+        notebook_url = (
+            show.notebooklm_notebook_url if show else settings.notebooklm_notebook_url
+        )
         if not notebook_url:
             # Go to NotebookLM homepage to create a new notebook
             notebook_url = "https://notebooklm.google.com"
@@ -292,9 +308,12 @@ class NotebookLMAutomator:
         """
         logger.info("Adding text source (%d chars) via file upload...", len(text))
 
-        # Save digest to a temporary text file
-        import tempfile
-        tmp_file = Path(tempfile.mktemp(suffix=".txt", prefix="noctua-digest-"))
+        # Save digest to a temporary text file (NamedTemporaryFile for safe creation)
+        tf = tempfile.NamedTemporaryFile(
+            suffix=".txt", prefix="noctua-digest-", delete=False
+        )
+        tmp_file = Path(tf.name)
+        tf.close()
         tmp_file.write_text(text, encoding="utf-8")
         logger.info("Saved digest to temp file: %s (%d bytes)", tmp_file, tmp_file.stat().st_size)
 
@@ -313,7 +332,9 @@ class NotebookLMAutomator:
                 }"""
             )
             await asyncio.sleep(3)
-            await page.screenshot(path="output/debug/add-source-dialog.png")
+            await page.screenshot(
+                path=str(self._debug_dir / "add-source-dialog.png")
+            )
 
             # Click "Upload files" button using Playwright's force click
             # (force=True bypasses overlay intercept while preserving native events)
@@ -325,7 +346,7 @@ class NotebookLMAutomator:
             logger.info("File uploaded via file chooser")
 
             await asyncio.sleep(5)
-            await page.screenshot(path="output/debug/after-upload.png")
+            await page.screenshot(path=str(self._debug_dir / "after-upload.png"))
 
             # Wait for source to be processed (check for source count change)
             for i in range(12):  # Wait up to 60s
@@ -343,7 +364,9 @@ class NotebookLMAutomator:
                     break
                 await asyncio.sleep(5)
 
-            await page.screenshot(path="output/debug/after-source-processing.png")
+            await page.screenshot(
+                path=str(self._debug_dir / "after-source-processing.png")
+            )
             logger.info("Text source added via file upload")
 
         finally:
@@ -360,7 +383,7 @@ class NotebookLMAutomator:
         # Dismiss any lingering overlays first
         await self._dismiss_dialogs(page)
 
-        await page.screenshot(path="output/debug/before-audio-gen.png")
+        await page.screenshot(path=str(self._debug_dir / "before-audio-gen.png"))
 
         # Use JS clicks to bypass any remaining overlays
         # Step 1: Click Audio Overview in the Studio panel
@@ -384,7 +407,7 @@ class NotebookLMAutomator:
         logger.info("Audio tab click result: %s", clicked)
         await asyncio.sleep(3)
 
-        await page.screenshot(path="output/debug/after-audio-tab.png")
+        await page.screenshot(path=str(self._debug_dir / "after-audio-tab.png"))
 
         # Step 2: Click Generate button
         gen_result = await page.evaluate(
@@ -460,7 +483,9 @@ class NotebookLMAutomator:
 
             if elapsed % 60 == 0:
                 logger.info("Still generating... (%ds elapsed, status: %s)", elapsed, status)
-                await page.screenshot(path=f"output/debug/audio-wait-{elapsed}s.png")
+                await page.screenshot(
+                    path=str(self._debug_dir / f"audio-wait-{elapsed}s.png")
+                )
 
             await asyncio.sleep(AUDIO_POLL_INTERVAL)
 
@@ -478,11 +503,11 @@ class NotebookLMAutomator:
         Returns:
             Path to the saved MP3 file.
         """
-        download_path = Path(f"output/episodes/noctua-{date}.mp3")
+        download_path = self._episodes_dir / f"noctua-{date}.mp3"
         download_path.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Downloading audio...")
-        await page.screenshot(path="output/debug/before-download.png")
+        await page.screenshot(path=str(self._debug_dir / "before-download.png"))
 
         # Find and click the three-dot menu (⋮) next to the audio entry
         try:
@@ -520,7 +545,9 @@ class NotebookLMAutomator:
                 )
 
             await asyncio.sleep(1)
-            await page.screenshot(path="output/debug/after-menu-click.png")
+            await page.screenshot(
+                path=str(self._debug_dir / "after-menu-click.png")
+            )
 
             # Click download in the dropdown menu
             async with page.expect_download(timeout=60000) as download_info:
@@ -541,7 +568,9 @@ class NotebookLMAutomator:
 
         except Exception as e:
             logger.info("Menu download failed (%s), checking for direct audio URL...", e)
-            await page.screenshot(path="output/debug/download-failed.png")
+            await page.screenshot(
+                path=str(self._debug_dir / "download-failed.png")
+            )
 
             # Last resort: try to extract audio URL directly from the page
             audio_url = await page.evaluate(

@@ -1,5 +1,6 @@
-"""Classify newsletter articles into podcast topic segments."""
+"""Classify newsletter articles into podcast topic segments using Gemini."""
 
+import json
 import logging
 import re
 from enum import StrEnum
@@ -7,7 +8,6 @@ from enum import StrEnum
 from src.models import Article
 
 logger = logging.getLogger(__name__)
-
 
 
 class Topic(StrEnum):
@@ -78,167 +78,20 @@ FILTERED_SENDERS: set[str] = {
     "substack",
 }
 
-# Single-topic newsletter sources — map sender name (lowercased) to topic
-SOURCE_TOPIC_MAP: dict[str, Topic] = {
-    "the neuron": Topic.TECH_AI,
-    "cassidoo": Topic.TECH_AI,
-    "tldr": Topic.TECH_AI,
-    "ben's bites": Topic.TECH_AI,
-    "the verge": Topic.TECH_AI,
-    "lenny's newsletter": Topic.PRODUCT_MANAGEMENT,
-    "the product compass": Topic.PRODUCT_MANAGEMENT,
-    "department of product": Topic.PRODUCT_MANAGEMENT,
-    "aakash gupta": Topic.PRODUCT_MANAGEMENT,
-    "product growth": Topic.PRODUCT_MANAGEMENT,
-    "the athletic pulse": Topic.ENTERTAINMENT,
-    "the athletic": Topic.ENTERTAINMENT,
-    "the hollywood reporter": Topic.ENTERTAINMENT,
-    "polygon": Topic.ENTERTAINMENT,
-    "kirkus reviews": Topic.ENTERTAINMENT,
-    "morning chalk up": Topic.CROSSFIT,
-    "wodwell": Topic.CROSSFIT,
-    "the hindu": Topic.INDIAN_POLITICS,
-    "the indian express": Topic.INDIAN_POLITICS,
-    "mint": Topic.INDIAN_POLITICS,
-    "the chai brief": Topic.INDIAN_POLITICS,
-    "chai brief": Topic.INDIAN_POLITICS,
-    "peter steinberger": Topic.TECH_AI,
-    "capitol hill seattle": Topic.SEATTLE,
-    "interesting facts": Topic.OTHER,
-    "better report": Topic.OTHER,
-}
-
-# Multi-topic aggregators: only need 1 keyword match (instead of 2)
-AGGREGATOR_SOURCES: set[str] = {
-    "the new york times",
-    "nyt",
-    "new york times",
-    "1440",
-    "apple news",
-    "apple news sports",
-    "good morning from apple news",
-}
-
-# Keyword lists for multi-topic sources (NYT, 1440, Apple News, etc.)
-TOPIC_KEYWORDS: dict[Topic, list[str]] = {
-    Topic.WORLD_POLITICS: [
-        r"\bUN\b", r"\bNATO\b", r"\bEU\b", r"\bG7\b", r"\bG20\b",
-        r"\bglobal\b", r"\binternational\b", r"\bdiplomat", r"\btreaty\b",
-        r"\bwar\b", r"\bconflict\b", r"\brefugee", r"\bsanction",
-        r"\bUkraine\b", r"\bRussia\b", r"\bChina\b", r"\bMiddle East\b",
-        r"\bIsrael\b", r"\bPalestine\b", r"\bGaza\b", r"\bIran\b",
-        r"\bNorth Korea\b", r"\bforeign policy\b", r"\bgeopolit",
-        r"\bclimate summit\b", r"\bpeace\s+talk", r"\bceasefire\b",
-        r"\bworld leader", r"\bambassador\b", r"\bterroris",
-    ],
-    Topic.US_POLITICS: [
-        r"\bCongress\b", r"\bSenate\b", r"\bHouse\b", r"\bWhite House\b",
-        r"\bPresident\b", r"\bSupreme Court\b", r"\bRepublican",
-        r"\bDemocrat", r"\bGOP\b", r"\bbipartisan\b", r"\belection\b",
-        r"\bvoter", r"\bcampaign\b", r"\bimpeach", r"\bfilibuster\b",
-        r"\blegislat", r"\bfederal\b", r"\bDOJ\b", r"\bFBI\b",
-        r"\bWashington\b", r"\bCapitol\b", r"\bTrump\b", r"\bBiden\b",
-        r"\bpoll\b", r"\bprimary\b", r"\bpartisan\b",
-    ],
-    Topic.INDIAN_POLITICS: [
-        r"\bIndia\b", r"\bModi\b", r"\bBJP\b", r"\bDelhi\b",
-        r"\bMumbai\b", r"\bLok Sabha\b", r"\bRajya Sabha\b",
-        r"\bParliament\b.*\bIndia", r"\bRupee\b", r"\bRBI\b",
-        r"\bBollywood\b",
-    ],
-    Topic.TECH_AI: [
-        r"\bAI\b", r"\bartificial intelligence\b", r"\bGPT\b",
-        r"\bOpenAI\b", r"\bGoogle\b.*\bAI\b", r"\bApple\b.*\bchip",
-        r"\bstartup\b", r"\btech\b", r"\bsoftware\b", r"\bcybersecur",
-        r"\bblockchain\b", r"\bcrypto\b", r"\bapp\b.*\blaunch",
-        r"\bsilicon valley\b", r"\bcloud\b", r"\bdata\b.*\bprivacy",
-        r"\bmachine learning\b", r"\bLLM\b", r"\bChatGPT\b",
-        r"\bAnthrop", r"\bneural\b", r"\brobot",
-    ],
-    Topic.ENTERTAINMENT: [
-        r"\bmovie\b", r"\bfilm\b", r"\bNetflix\b", r"\bDisney\b",
-        r"\bHBO\b", r"\bstreaming\b", r"\bbox office\b", r"\btrailer\b",
-        r"\bseries\b", r"\bseason\b", r"\bepisode\b", r"\bshow\b",
-        r"\bbook\b", r"\bnovel\b", r"\bauthor\b", r"\bbestseller\b",
-        r"\bmusic\b", r"\balbum\b", r"\bconcert\b", r"\baward",
-        r"\bOscar", r"\bEmmy\b", r"\bGrammy\b", r"\bcelebrit",
-        r"\bTV\b", r"\bgame\b.*\breleas", r"\bvideo game",
-    ],
-    Topic.PRODUCT_MANAGEMENT: [
-        r"\bproduct manag", r"\bPM\b", r"\broadmap\b",
-        r"\buser research\b", r"\bA/B test", r"\bmetric",
-        r"\bOKR\b", r"\bKPI\b", r"\bbacklog\b", r"\bsprint\b",
-        r"\bfeature\b.*\bpriori", r"\bstakeholder\b",
-        r"\bproduct-market fit\b", r"\buser experience\b",
-    ],
-    Topic.CROSSFIT: [
-        r"\bCrossFit\b", r"\bWOD\b", r"\bsnatch\b", r"\bclean and jerk\b",
-        r"\bdeadlift\b", r"\bkipping\b", r"\bAMRAP\b", r"\bEMOM\b",
-        r"\bfunctional fitness\b", r"\bCrossFit Games\b",
-        r"\bRogue\b", r"\bbox\b.*\bgym\b",
-    ],
-    Topic.F1: [
-        r"\bFormula 1\b", r"\bFormula One\b", r"\bF1\b", r"\bGrand Prix\b",
-        r"\bpole position\b", r"\bpit stop\b", r"\bFIA\b",
-        r"\bVerstappen\b", r"\bHamilton\b", r"\bLeclerc\b", r"\bNorris\b",
-        r"\bRed Bull Racing\b", r"\bFerrari\b.*\bF1", r"\bMcLaren\b",
-        r"\bMercedes\b.*\bF1", r"\bqualifying\b", r"\bpodium\b",
-        r"\bDRS\b", r"\btyre\b.*\bstrategy", r"\bcircuit\b",
-    ],
-    Topic.ARSENAL: [
-        r"\bArsenal\b", r"\bGunners\b", r"\bEmirates Stadium\b",
-        r"\bArteta\b", r"\bPremier League\b.*\bArsenal",
-        r"\bArsenal\b.*\bPremier League",
-        r"\bSaka\b", r"\bSaliba\b", r"\bOdegaard\b", r"\bRice\b",
-        r"\bHavertz\b", r"\bRamsdale\b", r"\bRaya\b",
-        r"\bNorth London\b", r"\bArsenal\b.*\btransfer",
-    ],
-    Topic.INDIAN_CRICKET: [
-        r"\bBCCI\b", r"\bIPL\b", r"\bIndian Premier League\b",
-        r"\bTeam India\b", r"\bIndia\b.*\bcricket",
-        r"\bcricket\b.*\bIndia", r"\bVirat\b", r"\bKohli\b",
-        r"\bRohit\b", r"\bSharma\b.*\bcricket", r"\bBumrah\b",
-        r"\bDhoni\b", r"\bTest match\b.*\bIndia",
-        r"\bODI\b.*\bIndia", r"\bT20\b.*\bIndia",
-        r"\bWorld Cup\b.*\bcricket", r"\bcricket\b.*\bWorld Cup",
-        r"\bwicket\b", r"\bbatting\b.*\bIndia", r"\bbowling\b.*\bIndia",
-    ],
-    Topic.BADMINTON: [
-        r"\bbadminton\b", r"\bBWF\b", r"\bshuttlecock\b",
-        r"\bAll England\b.*\bbadminton", r"\bThomas Cup\b",
-        r"\bUber Cup\b", r"\bSudirman Cup\b",
-        r"\bPV Sindhu\b", r"\bSindhu\b", r"\bSrikanth\b",
-        r"\bLakshya\b", r"\bSen\b.*\bbadminton",
-        r"\bSatwiksairaj\b", r"\bChirag\b", r"\bShetty\b",
-        r"\bSuper 750\b", r"\bSuper 1000\b", r"\bsmash\b.*\bbadminton",
-    ],
-    Topic.SPORTS: [
-        r"\bNFL\b", r"\bNBA\b", r"\bMLB\b", r"\bNHL\b", r"\bMLS\b",
-        r"\bSuper Bowl\b", r"\bplayoff", r"\bchampionship\b",
-        r"\btournament\b", r"\bathlet", r"\bcoach\b",
-        r"\bscor(?:e|ed|ing)\b", r"\bwin\b.*\bgame",
-        r"\bgame\b.*\bwin", r"\bsport",
-        r"\btennis\b", r"\bgolf\b", r"\bboxing\b", r"\bMMA\b",
-        r"\bUFC\b", r"\bOlympic", r"\bmarathon\b", r"\bswimming\b",
-        r"\bbasketball\b", r"\bfootball\b", r"\bsoccer\b",
-        r"\bbaseball\b", r"\bhockey\b", r"\brugby\b",
-    ],
-    Topic.SEATTLE: [
-        r"\bSeattle\b", r"\bSounders\b", r"\bKraken\b",
-        r"\bMariners\b", r"\bSeahawks\b", r"\bPuget Sound\b",
-        r"\bKing County\b", r"\bPike Place\b", r"\bCapitol Hill\b",
-        r"\bBellevue\b", r"\bRedmond\b", r"\bTacoma\b",
-        r"\bWashington State\b", r"\bSpace Needle\b",
-        r"\bAmazon\b.*\bSeattle", r"\bSeattle\b.*\bAmazon",
-        r"\bMicrosoft\b.*\bRedmond", r"\bPacific Northwest\b",
-        r"\bPNW\b", r"\bI-5\b", r"\bSea-Tac\b",
-    ],
-}
+# Valid topic names for parsing Gemini response
+_VALID_TOPICS: dict[str, Topic] = {t.value.lower(): t for t in Topic}
 
 
 def _normalize(text: str) -> str:
     """Normalize text for matching: lowercase, strip, and replace curly quotes."""
-    return text.lower().strip().replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+    return (
+        text.lower()
+        .strip()
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+    )
 
 
 def _is_filtered_sender(sender: str) -> bool:
@@ -247,91 +100,303 @@ def _is_filtered_sender(sender: str) -> bool:
     return sender_norm in FILTERED_SENDERS
 
 
-def _score_keywords(text: str, topic: Topic) -> int:
-    """Count keyword matches for a topic in the given text."""
-    keywords = TOPIC_KEYWORDS.get(topic, [])
-    score = 0
-    for pattern in keywords:
-        if re.search(pattern, text, re.IGNORECASE):
-            score += 1
-    return score
-
-
-def classify_article(article: Article) -> Topic | None:
-    """Classify an article into a podcast topic segment.
+def _build_classification_prompt(articles: list[tuple[int, Article]]) -> tuple[str, str]:
+    """Build the system and user prompts for Gemini classification.
 
     Args:
-        article: The article to classify.
+        articles: List of (original_index, Article) tuples to classify.
 
     Returns:
-        A Topic for the article, or None if the sender should be filtered.
+        Tuple of (system_prompt, user_message).
     """
-    # Filter transactional senders
-    if _is_filtered_sender(article.source):
-        logger.info("Filtering transactional sender: '%s'", article.source)
-        return None
+    topic_descriptions = "\n".join(
+        f"- \"{t.value}\" ({SEGMENT_DURATIONS.get(t, '~1 minute')})"
+        for t in Topic
+    )
 
-    # Check source-based mapping first
+    system = f"""\
+You are a news article classifier for a daily podcast. Your job is to assign each article to exactly one topic segment.
+
+AVAILABLE TOPICS (with segment duration):
+{topic_descriptions}
+
+CLASSIFICATION RULES:
+- Read the source, title, and content snippet of each article carefully.
+- Assign the single BEST matching topic based on the article's primary subject matter.
+- "Arsenal" = Arsenal Football Club ONLY. Other Premier League / football news goes to "Sports".
+- "Indian Cricket" = cricket involving India's national team, IPL, BCCI. Other cricket goes to "Sports".
+- "Badminton" = all badminton news regardless of country.
+- "Formula 1" = F1, Grand Prix, F1 drivers (Verstappen, Hamilton, etc.).
+- "CrossFit" = CrossFit workouts, competitions, CrossFit Games.
+- "Seattle" = local Seattle / Washington state / Pacific Northwest news, events, restaurants, crime.
+- "Indian Politics" = India government, politics, diplomacy, economy. NOT Indian sports.
+- "US Politics" = US government, Congress, White House, elections, policy, economy.
+- "World Politics" = international affairs, geopolitics, non-US/non-India politics.
+- "Latest in Tech" = technology, AI, startups, software, cybersecurity.
+- "Entertainment" = movies, TV, music, Hollywood, streaming, celebrities, books.
+- "Product Management" = product strategy, PM frameworks, user research, metrics.
+- "Sports" = any sport NOT covered by Arsenal/Indian Cricket/Badminton/F1/CrossFit.
+- "Misc" = articles that don't fit any of the above, promotional emails, or trivia.
+- If an article is clearly promotional, transactional, or has no news value, classify as "SKIP".
+
+RESPONSE FORMAT:
+Return a JSON object mapping article ID to topic name. Example:
+{{"0": "Latest in Tech", "3": "Seattle", "5": "SKIP"}}
+
+Return ONLY the JSON object, no other text."""
+
+    # Build article list — truncate content to ~200 words to save tokens
+    article_lines = []
+    for idx, article in articles:
+        content_words = article.content.split()
+        snippet = " ".join(content_words[:200])
+        if len(content_words) > 200:
+            snippet += "..."
+        article_lines.append(
+            f"[{idx}] Source: {article.source}\n"
+            f"    Title: {article.title}\n"
+            f"    Content: {snippet}"
+        )
+
+    user_message = "Classify these articles:\n\n" + "\n\n".join(article_lines)
+
+    return system, user_message
+
+
+def _parse_gemini_response(response_text: str, article_count: int) -> dict[int, Topic | None]:
+    """Parse Gemini's JSON response into a mapping of index -> Topic.
+
+    Args:
+        response_text: Raw text from Gemini (should be JSON).
+        article_count: Expected number of articles (for validation).
+
+    Returns:
+        Mapping of article index to Topic (or None for SKIP).
+    """
+    # Strip markdown code fences if present
+    cleaned = response_text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    # Fix truncated JSON: if it doesn't end with }, try to close it
+    cleaned = cleaned.strip()
+    if not cleaned.endswith("}"):
+        # Truncated — remove the last incomplete line and close the object
+        last_complete = cleaned.rfind(",")
+        if last_complete > 0:
+            cleaned = cleaned[:last_complete] + "}"
+        else:
+            cleaned = cleaned + "}"
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.error("Failed to parse Gemini classification response: %s", response_text[:500])
+        return {}
+
+    results: dict[int, Topic | None] = {}
+    for key, value in data.items():
+        try:
+            idx = int(key)
+        except ValueError:
+            continue
+
+        if isinstance(value, str):
+            value_lower = value.strip().lower()
+            if value_lower == "skip":
+                results[idx] = None
+            elif value_lower in _VALID_TOPICS:
+                results[idx] = _VALID_TOPICS[value_lower]
+            else:
+                logger.warning("Unknown topic from Gemini: '%s' for article %d", value, idx)
+                results[idx] = Topic.OTHER
+
+    return results
+
+
+def classify_articles_batch(articles: list[Article]) -> dict[int, Topic | None]:
+    """Classify articles by sending them to Gemini in a single batch.
+
+    Filters transactional senders first, then sends all remaining articles
+    to Gemini Flash for classification. Falls back to keyword-based
+    classification if the API call fails.
+
+    Args:
+        articles: Articles to classify (must have source, title, content set).
+
+    Returns:
+        Mapping of article list index to Topic (or None if filtered/skipped).
+    """
+    results: dict[int, Topic | None] = {}
+    to_classify: list[tuple[int, Article]] = []
+
+    # Pre-filter transactional senders
+    for i, article in enumerate(articles):
+        if _is_filtered_sender(article.source):
+            results[i] = None
+        else:
+            to_classify.append((i, article))
+
+    if not to_classify:
+        return results
+
+    # Try Gemini classification
+    try:
+        from src.llm_client import call_fast
+
+        system_prompt, user_message = _build_classification_prompt(to_classify)
+        response = call_fast(system_prompt, user_message, max_tokens=8192, timeout=60)
+        gemini_results = _parse_gemini_response(response, len(to_classify))
+
+        if gemini_results:
+            results.update(gemini_results)
+            # Check for any articles Gemini missed and default to Misc
+            for idx, _article in to_classify:
+                if idx not in results:
+                    logger.warning("Gemini missed article %d ('%s'), defaulting to Misc",
+                                   idx, _article.title[:60])
+                    results[idx] = Topic.OTHER
+
+            classified_count = sum(1 for v in gemini_results.values() if v is not None)
+            skipped_count = sum(1 for v in gemini_results.values() if v is None)
+            logger.info("Gemini classified %d articles (%d skipped)", classified_count, skipped_count)
+            return results
+
+        logger.warning("Gemini returned empty results, falling back to keyword classification")
+
+    except Exception as e:
+        logger.warning("Gemini classification failed (%s), falling back to keywords", e)
+
+    # Fallback: keyword-based classification
+    for idx, article in to_classify:
+        results[idx] = _classify_by_keywords(article)
+
+    return results
+
+
+# --- Keyword fallback (used when Gemini is unavailable) ---
+
+# Keyword lists for fallback classification
+_TOPIC_KEYWORDS: dict[Topic, list[str]] = {
+    Topic.WORLD_POLITICS: [
+        r"\bUN\b", r"\bNATO\b", r"\bEU\b", r"\bglobal\b",
+        r"\bwar\b", r"\bconflict\b", r"\bUkraine\b", r"\bRussia\b",
+        r"\bChina\b", r"\bIsrael\b", r"\bPalestine\b", r"\bGaza\b",
+        r"\bIran\b", r"\bgeopolit", r"\bceasefire\b", r"\bdiplomat",
+    ],
+    Topic.US_POLITICS: [
+        r"\bCongress\b", r"\bSenate\b", r"\bWhite House\b",
+        r"\bPresident\b", r"\bRepublican", r"\bDemocrat",
+        r"\bTrump\b", r"\bBiden\b", r"\belection\b", r"\bfederal\b",
+    ],
+    Topic.INDIAN_POLITICS: [
+        r"\bIndia\b.*\b(?:government|politic|minister|parliament)",
+        r"\bModi\b", r"\bBJP\b", r"\bDelhi\b",
+        r"\bLok Sabha\b", r"\bRajya Sabha\b", r"\bRBI\b",
+    ],
+    Topic.TECH_AI: [
+        r"\bAI\b", r"\bartificial intelligence\b", r"\bGPT\b",
+        r"\bOpenAI\b", r"\btech\b", r"\bsoftware\b", r"\bLLM\b",
+        r"\bstartup\b", r"\bcrypto\b", r"\bmachine learning\b",
+    ],
+    Topic.ENTERTAINMENT: [
+        r"\bmovie\b", r"\bfilm\b", r"\bNetflix\b", r"\bstreaming\b",
+        r"\bbox office\b", r"\bOscar", r"\bmusic\b", r"\bconcert\b",
+        r"\bHollywood\b", r"\bcelebrit",
+    ],
+    Topic.CROSSFIT: [r"\bCrossFit\b", r"\bWOD\b", r"\bAMRAP\b", r"\bEMOM\b"],
+    Topic.F1: [
+        r"\bFormula 1\b", r"\bF1\b", r"\bGrand Prix\b",
+        r"\bVerstappen\b", r"\bHamilton\b", r"\bMcLaren\b",
+    ],
+    Topic.ARSENAL: [r"\bArsenal\b", r"\bGunners\b", r"\bArteta\b", r"\bEmirates Stadium\b"],
+    Topic.INDIAN_CRICKET: [
+        r"\bIPL\b", r"\bBCCI\b", r"\bIndia\b.*\bcricket",
+        r"\bcricket\b.*\bIndia", r"\bKohli\b", r"\bBumrah\b",
+    ],
+    Topic.BADMINTON: [r"\bbadminton\b", r"\bBWF\b", r"\bSindhu\b", r"\bSrikanth\b"],
+    Topic.SPORTS: [
+        r"\bNFL\b", r"\bNBA\b", r"\bMLB\b", r"\bOlympic",
+        r"\btennis\b", r"\bgolf\b", r"\bUFC\b", r"\bsoccer\b",
+    ],
+    Topic.SEATTLE: [
+        r"\bSeattle\b", r"\bPuget Sound\b", r"\bKing County\b",
+        r"\bSeahawks\b", r"\bCapitol Hill\b", r"\bWA\b",
+        r"\bPierce County\b", r"\bTacoma\b", r"\bBellevue\b",
+    ],
+}
+
+
+# Source-based hints for keyword fallback
+_SOURCE_TOPIC_MAP: dict[str, Topic] = {
+    "the neuron": Topic.TECH_AI, "cassidoo": Topic.TECH_AI,
+    "tldr": Topic.TECH_AI, "ben's bites": Topic.TECH_AI,
+    "the verge": Topic.TECH_AI, "peter steinberger": Topic.TECH_AI,
+    "lenny's newsletter": Topic.PRODUCT_MANAGEMENT,
+    "the product compass": Topic.PRODUCT_MANAGEMENT,
+    "department of product": Topic.PRODUCT_MANAGEMENT,
+    "aakash gupta": Topic.PRODUCT_MANAGEMENT,
+    "the athletic pulse": Topic.ENTERTAINMENT, "the athletic": Topic.ENTERTAINMENT,
+    "the hollywood reporter": Topic.ENTERTAINMENT, "thr breaking news": Topic.ENTERTAINMENT,
+    "thr today in entertainment": Topic.ENTERTAINMENT,
+    "polygon": Topic.ENTERTAINMENT, "kirkus reviews": Topic.ENTERTAINMENT,
+    "morning chalk up": Topic.CROSSFIT, "wodwell": Topic.CROSSFIT,
+    "the hindu": Topic.INDIAN_POLITICS, "the hindu on tech": Topic.INDIAN_POLITICS,
+    "the indian express": Topic.INDIAN_POLITICS, "mint": Topic.INDIAN_POLITICS,
+    "the chai brief": Topic.INDIAN_POLITICS, "chai brief": Topic.INDIAN_POLITICS,
+    "capitol hill seattle": Topic.SEATTLE, "capitolhillseattle.com": Topic.SEATTLE,
+}
+
+# Google Alert label → Topic (for fallback)
+_GOOGLE_ALERT_MAP: dict[str, Topic] = {
+    "seattle": Topic.SEATTLE, "arsenal": Topic.ARSENAL,
+    "badminton": Topic.BADMINTON, "formula 1": Topic.F1, "f1": Topic.F1,
+    "india cricket": Topic.INDIAN_CRICKET, "indian cricket": Topic.INDIAN_CRICKET,
+    "cricket": Topic.INDIAN_CRICKET, "max verstappen": Topic.F1,
+    "verstappen": Topic.F1, "crossfit": Topic.CROSSFIT,
+}
+
+
+def _classify_by_keywords(article: Article) -> Topic:
+    """Classify an article using source map + keyword scoring (fallback)."""
     source_lower = _normalize(article.source)
-    for source_key, topic in SOURCE_TOPIC_MAP.items():
+
+    # Google Alert direct mapping
+    alert_match = re.search(r"google alerts?\s*\((.+?)\)", source_lower)
+    if alert_match:
+        label = alert_match.group(1).strip()
+        if label in _GOOGLE_ALERT_MAP:
+            return _GOOGLE_ALERT_MAP[label]
+
+    # Known single-topic sources
+    for source_key, topic in _SOURCE_TOPIC_MAP.items():
         if source_key in source_lower or source_lower in source_key:
-            logger.debug("Source map: '%s' -> %s", article.source, topic)
             return topic
 
-    # Keyword-based classification for multi-topic sources
-    text = f"{article.title} {article.content}"
+    # Keyword scoring
+    text = f"{article.title} {article.content[:2000]}"
     best_topic = Topic.OTHER
     best_score = 0
 
     for topic in Topic:
         if topic == Topic.OTHER:
             continue
-        score = _score_keywords(text, topic)
+        keywords = _TOPIC_KEYWORDS.get(topic, [])
+        score = sum(1 for p in keywords if re.search(p, text, re.IGNORECASE))
         if score > best_score:
             best_score = score
             best_topic = topic
 
-    # Known aggregators (multi-topic sources) need only 1 keyword match;
-    # unknown sources need 2 to avoid false positives.
-    is_aggregator = any(a in source_lower for a in AGGREGATOR_SOURCES)
-    min_score = 1 if is_aggregator else 2
-    if best_score < min_score:
+    if best_score < 1:
         best_topic = Topic.OTHER
 
-    logger.debug(
-        "Keyword classify: '%s' -> %s (score=%d)", article.title, best_topic, best_score
-    )
     return best_topic
 
 
-
-def classify_articles_batch(articles: list[Article]) -> dict[int, Topic | None]:
-    """Classify a list of articles using sender map + keyword regex.
-
-    Args:
-        articles: Articles to classify (must have source, title, content set).
-
-    Returns:
-        Mapping of article list index to Topic (or None if filtered).
-    """
-    results: dict[int, Topic | None] = {}
-
-    # Fast path: sender map + transactional filter
-    for i, article in enumerate(articles):
-        if _is_filtered_sender(article.source):
-            results[i] = None
-            continue
-
-        source_lower = _normalize(article.source)
-        matched = False
-        for source_key, topic in SOURCE_TOPIC_MAP.items():
-            if source_key in source_lower or source_lower in source_key:
-                results[i] = topic
-                matched = True
-                break
-
-        if not matched:
-            # Keyword regex fallback for unmatched articles
-            results[i] = classify_article(article)
-
-    return results
+# Keep single-article classify for backward compat
+def classify_article(article: Article) -> Topic | None:
+    """Classify a single article."""
+    if _is_filtered_sender(article.source):
+        return None
+    return _classify_by_keywords(article)

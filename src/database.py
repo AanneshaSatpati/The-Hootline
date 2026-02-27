@@ -177,6 +177,21 @@ def list_digests(limit: int = 50, db_path: Path | None = None) -> list[dict]:
         conn.close()
 
 
+def list_digests_with_char_count(limit: int = 100, db_path: Path | None = None) -> list[dict]:
+    """List recent digests with markdown_text char count (avoids N+1 queries)."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, date, article_count, total_words, email_count, topics_summary, "
+            "LENGTH(markdown_text) as total_chars, created_at "
+            "FROM digests ORDER BY date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def delete_digest(date: str, db_path: Path | None = None) -> bool:
     """Delete a single digest by date.
 
@@ -309,10 +324,14 @@ def list_episodes(limit: int = 0, db_path: Path | None = None) -> list[dict]:
     """List all archived episodes (most recent first). No limit by default."""
     conn = _get_connection(db_path)
     try:
-        query = "SELECT * FROM episodes ORDER BY date DESC"
         if limit > 0:
-            query += f" LIMIT {limit}"
-        rows = conn.execute(query).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM episodes ORDER BY date DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM episodes ORDER BY date DESC"
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

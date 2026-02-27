@@ -132,6 +132,58 @@ def _deduplicate_articles(articles: list[Article]) -> list[Article]:
     return unique
 
 
+_GOOGLE_ALERT_SECTION = re.compile(
+    r"=== .+?new results? for \[(.+?)\] ===",
+)
+
+
+def _split_google_alert(email: EmailMessage) -> list[Article]:
+    """Split a Google Alerts daily digest into one Article per alert topic.
+
+    Google Alerts bundles multiple topics into a single email with sections
+    like: === News - 3 new results for [badminton] ===
+    """
+    text = email.body_text or ""
+    sections = _GOOGLE_ALERT_SECTION.split(text)
+
+    # sections = [preamble, topic1, body1, topic2, body2, ...]
+    if len(sections) < 3:
+        return []
+
+    articles: list[Article] = []
+    for i in range(1, len(sections), 2):
+        topic_label = sections[i].strip()
+        body = sections[i + 1] if i + 1 < len(sections) else ""
+
+        # Strip unsubscribe/footer lines from each section
+        clean_lines = []
+        for line in body.strip().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- - - - -"):
+                break
+            if stripped.startswith(("Unsubscribe", "Create another Google Alert", "Sign in to manage")):
+                continue
+            if stripped.startswith("<https://www.google.com/alerts"):
+                continue
+            clean_lines.append(stripped)
+
+        content = "\n".join(ln for ln in clean_lines if ln)
+        if not content or len(content) < 30:
+            continue
+
+        word_count = len(content.split())
+        articles.append(Article(
+            source=f"Google Alerts ({topic_label})",
+            title=f"Google Alert: {topic_label}",
+            content=content,
+            estimated_words=word_count,
+        ))
+
+    logger.info("Split Google Alert into %d topic articles: %s",
+                len(articles), [a.title for a in articles])
+    return articles
+
+
 def parse_emails(emails: list[EmailMessage]) -> DailyDigest:
     """Parse a list of email messages into a daily digest.
 
@@ -150,6 +202,13 @@ def parse_emails(emails: list[EmailMessage]) -> DailyDigest:
             if _is_filtered_sender(source):
                 logger.info("Skipping transactional sender: '%s'", source)
                 continue
+
+            # Google Alerts daily digest: split into per-topic articles
+            if "googlealerts" in email.sender.lower() or source == "Google Alerts":
+                alert_articles = _split_google_alert(email)
+                if alert_articles:
+                    articles.extend(alert_articles)
+                    continue
 
             content = ""
             if email.body_html:

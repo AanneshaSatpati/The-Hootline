@@ -15,14 +15,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import shows
+from config import LOCAL_TZ, shows
 from src import content_parser, database, digest_compiler, email_fetcher
 from src.models import EmailMessage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("backfill")
 
-PST = timezone(timedelta(hours=-8))
+# Backward-compat alias
+PST = LOCAL_TZ
 
 
 def fetch_emails_for_range(start_pst: datetime, end_pst: datetime, show=None) -> list[EmailMessage]:

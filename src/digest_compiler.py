@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-from config import ShowConfig, ShowFormat, SHOW_FORMATS
+from config import LOCAL_TZ, ShowConfig, ShowFormat, SHOW_FORMATS
 from src.exceptions import DigestCompileError
 from src.models import Article, CompiledDigest, DailyDigest
 from src.topic_classifier import SEGMENT_DURATIONS, SEGMENT_ORDER, Topic
@@ -108,8 +108,8 @@ def _summarize_all_segments(
 
     Returns (segment_texts, rss_summary) or None if the call fails.
     """
-    from src.llm_client import call_sonnet
-    from src.exceptions import ClaudeAPIError
+    from src.llm_client import call_summarize
+    from src.exceptions import LLMAPIError
 
     system_prompt = SUMMARIZATION_SYSTEM_PROMPT_TEMPLATE.format(podcast_name=podcast_name)
 
@@ -160,14 +160,14 @@ def _summarize_all_segments(
     )
 
     try:
-        response = call_sonnet(
+        response = call_summarize(
             system=system_prompt,
             user_message=user_message,
             max_tokens=total_word_budget * 3 + 100,
             temperature=0.3,
             timeout=120,
         )
-    except ClaudeAPIError as e:
+    except LLMAPIError as e:
         logger.warning("Single-call summarization failed: %s — using raw fallback", e)
         return None
 
@@ -397,8 +397,7 @@ def compile(digest: DailyDigest, show: ShowConfig | None = None) -> CompiledDige
 
     podcast_name = show.podcast_title if show else "The Hootline"
 
-    PST = timezone(timedelta(hours=-8))
-    episode_date = datetime.now(PST).date()
+    episode_date = datetime.now(LOCAL_TZ).date()
     date_ymd = episode_date.strftime("%Y-%m-%d")
     date_display = episode_date.strftime("%B %-d, %Y")
 
