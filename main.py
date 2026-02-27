@@ -24,6 +24,9 @@ from src.episode_manager import _ffmpeg_path
 from src.models import CompiledDigest
 
 ACCEPTED_AUDIO_EXTENSIONS = {".mp3", ".m4a", ".wav", ".ogg", ".webm"}
+BUILD_NUMBER = 1
+BUILD_DATE = datetime.now(UTC).strftime("%b %d, %Y")
+BUILD_VERSION = f"b{BUILD_NUMBER} · {BUILD_DATE}"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -1375,7 +1378,8 @@ def _build_dashboard_html(show_id: str = "") -> str:
     return (DASHBOARD_HTML
             .replace("__SHOW_ID__", show_id)
             .replace("__SHOW_TITLE__", title)
-            .replace("__SHOW_TAGLINE__", tagline))
+            .replace("__SHOW_TAGLINE__", tagline)
+            .replace("__BUILD_VERSION__", BUILD_VERSION))
 
 
 DASHBOARD_HTML = """\
@@ -1564,6 +1568,7 @@ DASHBOARD_HTML = """\
     <span style="font-size:10px;color:var(--text-dim);" id="sched-info"></span>
     <button class="btn" id="gen-btn" onclick="startPrep()">Prepare Digest</button>
     <a class="btn" id="feed-link" href="/feed.xml">RSS Feed</a>
+    <span style="font-size:9px;color:var(--text-dim);opacity:0.5;">v__BUILD_VERSION__</span>
   </div>
 </header>
 
