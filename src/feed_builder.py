@@ -148,6 +148,14 @@ def add_episode(metadata: EpisodeMetadata, show: ShowConfig | None = None) -> No
         # Remove existing entry for the same date (re-generation)
         episodes = [e for e in episodes if e["date"] != metadata.date]
 
+        # Use the episode date as the published timestamp (e.g. 2026-02-23 → Feb 23 evening)
+        try:
+            ep_dt = datetime.strptime(metadata.date, "%Y-%m-%d").replace(
+                hour=18, minute=30, tzinfo=UTC
+            )
+        except ValueError:
+            ep_dt = datetime.now(UTC)
+
         entry = {
             "date": metadata.date,
             "file_size_bytes": metadata.file_size_bytes,
@@ -155,7 +163,7 @@ def add_episode(metadata: EpisodeMetadata, show: ShowConfig | None = None) -> No
             "duration_formatted": metadata.duration_formatted,
             "topics_summary": metadata.topics_summary,
             "rss_summary": metadata.rss_summary,
-            "published": datetime.now(UTC).isoformat(),
+            "published": ep_dt.isoformat(),
         }
         if metadata.gcs_url:
             entry["gcs_url"] = metadata.gcs_url
@@ -201,6 +209,15 @@ def sync_catalog_from_db(show: ShowConfig | None = None) -> None:
     episodes_db = database.list_episodes(db_path=db_path)
     catalog = []
     for ep in episodes_db:
+        # Use episode date as published timestamp, not the time it was uploaded
+        try:
+            ep_dt = datetime.strptime(ep["date"], "%Y-%m-%d").replace(
+                hour=18, minute=30, tzinfo=UTC
+            )
+            published = ep_dt.isoformat()
+        except ValueError:
+            published = ep.get("published_at", "")
+
         entry = {
             "date": ep["date"],
             "file_size_bytes": ep["file_size_bytes"],
@@ -208,7 +225,7 @@ def sync_catalog_from_db(show: ShowConfig | None = None) -> None:
             "duration_formatted": ep["duration_formatted"],
             "topics_summary": ep.get("topics_summary", ""),
             "rss_summary": ep.get("rss_summary", ""),
-            "published": ep.get("published_at", ""),
+            "published": published,
         }
         if ep.get("gcs_url"):
             entry["gcs_url"] = ep["gcs_url"]
