@@ -38,7 +38,6 @@ def upload_episode(local_path: Path, date: str, show_id: str = "noctua") -> str:
     blob = bucket.blob(blob_name)
 
     blob.upload_from_filename(str(local_path), content_type="audio/mpeg")
-    blob.make_public()
 
     url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
     logger.info("Uploaded episode to GCS: %s", url)
