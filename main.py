@@ -639,7 +639,7 @@ async def api_history(show_id: str = Query(default="")):
 
 @app.get("/api/export-episodes")
 async def api_export_episodes(show_id: str = Query(default="")):
-    """Bundle the current PST week's episode MP3s into a ZIP for download."""
+    """Bundle all episode MP3s and digests into a ZIP for download."""
     state = _resolve_show(show_id)
     show = state.show
     episodes_dir = show.episodes_dir
@@ -648,32 +648,24 @@ async def api_export_episodes(show_id: str = Query(default="")):
     if not episodes_dir.exists():
         return JSONResponse({"error": "No episodes directory found."}, status_code=404)
 
-    now = _pst_now()
-    mon, sun = _week_date_range(now)
-    week_label = _iso_week_label(now)
-
     exports_dir.mkdir(parents=True, exist_ok=True)
-    zip_name = f"{show.show_id}-{week_label}.zip"
+    zip_name = f"{show.show_id}-all-episodes.zip"
     zip_path = exports_dir / zip_name
 
-    if zip_path.exists():
-        return FileResponse(
-            zip_path,
-            media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
-        )
-
-    mp3_files = sorted(
-        mp3 for mp3 in episodes_dir.glob("noctua-*.mp3")
-        if mon <= mp3.stem.removeprefix("noctua-") <= sun
-    )
+    # Always regenerate so it includes the latest episodes
+    mp3_files = sorted(episodes_dir.glob("noctua-*.mp3"))
     if not mp3_files:
-        return JSONResponse({"error": "No episodes this week."}, status_code=404)
+        return JSONResponse({"error": "No episodes found."}, status_code=404)
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
         for mp3 in mp3_files:
             zf.write(mp3, mp3.name)
-        _add_digests_to_zip(zf, mon, sun, db_path=show.db_path)
+        # Add all digests
+        all_digests = database.list_digests(limit=9999, db_path=show.db_path)
+        for d in all_digests:
+            full = database.get_digest(d["date"], db_path=show.db_path)
+            if full and full["markdown_text"]:
+                zf.writestr(f"noctua-digest-{d['date']}.md", full["markdown_text"])
 
     return FileResponse(
         zip_path,
@@ -1856,7 +1848,7 @@ async function loadHistory() {
     let h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
     h += '<span style="font-size:12px;color:var(--text-dim);">' + thisWeek.length + ' episodes this week &middot; ' + weekMB + ' MB</span>';
     if (thisWeek.length > 0) {
-      h += '<button class="btn" onclick="window.location=\\'' + apiUrl('/api/export-episodes') + '\\'">Export This Week (ZIP)</button>';
+      h += '<button class="btn" onclick="window.location=\\'' + apiUrl('/api/export-episodes') + '\\'">Export</button>';
     }
     h += '</div>';
 

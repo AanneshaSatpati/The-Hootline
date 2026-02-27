@@ -77,9 +77,6 @@ def _ensure_mp3(path: Path) -> Path:
     return path
 
 
-MAX_EPISODES = 7
-
-
 def _format_duration(seconds: int) -> str:
     """Format seconds as HH:MM:SS.
 
@@ -94,15 +91,6 @@ def _format_duration(seconds: int) -> str:
     secs = seconds % 60
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-
-def _cleanup_old_episodes(episodes_dir: Path) -> None:
-    """Remove old episodes beyond the retention limit."""
-    episodes = sorted(episodes_dir.glob("noctua-*.mp3"))
-    if len(episodes) > MAX_EPISODES:
-        to_remove = episodes[: len(episodes) - MAX_EPISODES]
-        for ep in to_remove:
-            logger.info("Removing old episode: %s", ep.name)
-            ep.unlink()
 
 
 def process(mp3_path: Path, topics_summary: str, rss_summary: str = "",
@@ -169,9 +157,6 @@ def process(mp3_path: Path, topics_summary: str, rss_summary: str = "",
                 gcs_url = gcs_storage.upload_episode(canonical_path, date_str, show_id=show_id)
             except Exception as e:
                 logger.error("GCS upload failed (continuing without): %s", e)
-
-        # Clean up old episodes
-        _cleanup_old_episodes(episodes_dir)
 
         return EpisodeMetadata(
             date=date_str,
