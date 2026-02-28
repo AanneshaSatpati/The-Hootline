@@ -1658,7 +1658,7 @@ function switchTab(tab) {
   if (tab === 'coverage3d') {
     const frame = document.getElementById('coverage3d-frame');
     if (!frame.dataset.loaded) {
-      frame.src = '/static/coverage-3d.html';
+      frame.src = '/static/coverage-3d.html?show_id=' + encodeURIComponent(SHOW_ID);
       frame.dataset.loaded = '1';
     }
   }

@@ -188,8 +188,11 @@ let EPISODES = generateMockData();
 
 async function loadRealData() {
   try {
-    const res = await fetch('/api/topic-coverage-3d');
-    if (!res.ok) return false;
+    // Pass show_id from parent if available
+    const params = new URLSearchParams(window.location.search);
+    const showId = params.get('show_id') || '';
+    const res = await fetch('/api/topic-coverage-3d?show_id=' + encodeURIComponent(showId));
+    if (!res.ok) { console.error('Coverage 3D API error:', res.status); return false; }
     const data = await res.json();
     if (!data.episodes || data.episodes.length < 2) return false;
     TOPICS = data.topics; NUM_TOPICS = TOPICS.length;
