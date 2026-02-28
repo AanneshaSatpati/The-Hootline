@@ -269,6 +269,37 @@ def get_topic_coverage(limit: int = 30, published_only: bool = False,
         conn.close()
 
 
+def get_digest_coverage_detail(limit: int = 100, published_only: bool = False,
+                                db_path: Path | None = None) -> list[dict]:
+    """Get digest data including markdown_text for word-level coverage parsing.
+
+    Returns results in ascending date order (oldest first).
+    """
+    conn = _get_connection(db_path)
+    try:
+        if published_only:
+            rows = conn.execute(
+                "SELECT d.date, d.markdown_text, d.total_words, d.segment_counts "
+                "FROM digests d INNER JOIN episodes e ON d.date = e.date "
+                "ORDER BY d.date ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT date, markdown_text, total_words, segment_counts "
+                "FROM digests ORDER BY date ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["segment_counts"] = json.loads(d["segment_counts"])
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
 # --- Episode Archive ---
 
 def delete_episode(date: str, db_path: Path | None = None) -> bool:

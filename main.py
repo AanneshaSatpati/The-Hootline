@@ -551,6 +551,76 @@ async def api_topic_coverage_3d(show_id: str = Query(default="")):
     return JSONResponse({"topics": topics, "episodes": episodes})
 
 
+def _parse_segment_words(markdown_text: str, segment_order: list[str]) -> dict[str, int]:
+    """Parse digest markdown to count words per topic segment.
+
+    Expected format: ## SEGMENT N: TopicName (~X minutes)
+    """
+    result = {name: 0 for name in segment_order}
+    parts = re.split(r'## SEGMENT \d+:\s*(.+?)(?:\s*\(~\d+\s*minutes?\))?\s*\n', markdown_text)
+    for i in range(1, len(parts) - 1, 2):
+        topic_name = parts[i].strip()
+        body = parts[i + 1] if i + 1 < len(parts) else ""
+        body = re.sub(r'\*\*Word budget:.*?\*\*', '', body)
+        body = body.replace('---', '')
+        word_count = len(body.split())
+        for name in segment_order:
+            if name.lower() == topic_name.lower():
+                result[name] = word_count
+                break
+    return result
+
+
+@app.get("/api/coverage-dashboard")
+async def api_coverage_dashboard(show_id: str = Query(default="")):
+    """Per-episode word-level coverage data for the coverage dashboard."""
+    state = _resolve_show(show_id)
+    db_path = state.show.db_path
+    fmt = state.show.format
+    segment_order = fmt.segment_order
+    duration_map = fmt.segment_durations
+    words_per_minute = 150
+
+    digests = database.get_digest_coverage_detail(
+        limit=100, published_only=True, db_path=db_path
+    )
+
+    episodes_out = []
+    for d in digests:
+        segment_words = _parse_segment_words(d["markdown_text"], segment_order)
+        coverage = {}
+        for topic_name in segment_order:
+            target_mins = duration_map.get(topic_name, 1)
+            target_words = target_mins * words_per_minute
+            actual_words = segment_words.get(topic_name, 0)
+            pct = round(actual_words / target_words, 4) if target_words > 0 else 0
+            coverage[topic_name] = {
+                "pct": pct,
+                "actual_words": actual_words,
+                "target_words": target_words,
+            }
+        episodes_out.append({
+            "date": d["date"],
+            "total_words": d["total_words"],
+            "coverage": coverage,
+        })
+
+    topics = []
+    for name in segment_order:
+        mins = duration_map.get(name, 1)
+        topics.append({
+            "name": name,
+            "alloc_min": mins,
+            "target_words": mins * words_per_minute,
+        })
+
+    return JSONResponse({
+        "topics": topics,
+        "episodes": episodes_out,
+        "audio_note": "Audio coverage estimated from word distribution",
+    })
+
+
 @app.get("/api/history")
 async def api_history(show_id: str = Query(default="")):
     """Combined digest + episode history for the History tab."""
@@ -1462,21 +1532,33 @@ DASHBOARD_HTML = """\
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
-  /* Coverage 3D */
+  /* Coverage Tab */
   .cov-toggle {
     background: transparent; border: 1px solid #333; color: #666;
     font-family: inherit; font-size: 11px; padding: 6px 14px;
-    cursor: pointer; letter-spacing: 1px;
+    cursor: pointer; letter-spacing: 1px; transition: all 0.15s;
   }
-  .cov-toggle.active { background: #7DF9AA15; border-color: #7DF9AA; color: #7DF9AA; }
+  .cov-toggle.active { background: rgba(196,160,82,0.12); border-color: var(--accent); color: var(--accent); }
   .cov-toggle:hover:not(.active) { border-color: #555; color: #999; }
-  .cov-topic { display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer; user-select:none; }
-  .cov-topic:hover { opacity:1 !important; }
-  .cov-topic .cdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-  .cov-topic .clbl { font-size:10px; color:#777; letter-spacing:0.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .cov-topic .cpct { margin-left:auto; font-size:9px; color:#555; font-variant-numeric:tabular-nums; }
-  .cov-topic.off .cdot { opacity:0.2; }
-  .cov-topic.off .clbl { color:#444; text-decoration:line-through; }
+  .cov-back-btn {
+    background: none; border: 1px solid #333; color: var(--accent);
+    font-family: inherit; font-size: 11px; padding: 6px 14px;
+    border-radius: 3px; cursor: pointer; letter-spacing: 1px;
+  }
+  .cov-back-btn:hover { border-color: var(--accent); background: rgba(196,160,82,0.06); }
+  .cov-tooltip {
+    position: absolute; z-index: 20; pointer-events: none;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px 12px; font-size: 10px;
+    line-height: 1.6; color: var(--text); display: none;
+    max-width: 260px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  #cov-range-controls input[type="date"] {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    font-family: inherit; font-size: 11px; padding: 4px 8px; border-radius: 3px;
+  }
+  #cov-range-controls input[type="range"] { accent-color: var(--accent); cursor: pointer; }
+  #cov-stats { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
 
   /* Latest: two-column */
   .latest-layout { display: flex; gap: 24px; max-width: 1200px; margin: 0 auto; padding: 24px; align-items: flex-start; }
@@ -1615,7 +1697,7 @@ DASHBOARD_HTML = """\
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('latest', this)">Latest</button>
   <button class="tab-btn" onclick="switchTab('history', this)">History</button>
-  <button class="tab-btn" onclick="switchTab('coverage3d', this)">Coverage 3D</button>
+  <button class="tab-btn" onclick="switchTab('coverage', this)">Coverage</button>
   <button class="tab-btn" onclick="switchTab('settings', this)">Settings</button>
 </div>
 
@@ -1637,25 +1719,39 @@ DASHBOARD_HTML = """\
   </div>
 </div>
 
-<div id="tab-coverage3d" class="tab-content">
-  <div id="cov3d-wrap" style="position:relative;width:100%;height:calc(100vh - 80px);background:#0a0a0f;border-radius:6px;overflow:hidden;">
-    <canvas id="cov3d-canvas" style="display:block;width:100%;height:100%;"></canvas>
-    <div id="cov3d-header" style="position:absolute;top:20px;left:24px;pointer-events:none;">
-      <div style="font-size:14px;font-weight:700;color:#7DF9AA;letter-spacing:2px;text-transform:uppercase;">Topic Coverage</div>
-      <div id="cov3d-subtitle" style="font-size:10px;color:#555;margin-top:4px;letter-spacing:1px;"></div>
+<div id="tab-coverage" class="tab-content">
+  <div id="cov-wrap" style="position:relative;width:100%;min-height:calc(100vh - 80px);padding:24px;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+      <div id="cov-view-toggle" style="display:flex;gap:0;">
+        <button class="cov-toggle active" onclick="covSetView('radar')" style="border-radius:3px 0 0 3px;">Radar</button>
+        <button class="cov-toggle" onclick="covSetView('trend')" style="border-radius:0 3px 3px 0;">Trend</button>
+      </div>
+      <div id="cov-tab-toggle" style="display:flex;gap:0;">
+        <button class="cov-toggle active" onclick="covSetTab('latest')" style="border-radius:3px 0 0 3px;">Latest</button>
+        <button class="cov-toggle" onclick="covSetTab('range')" style="border-radius:0 3px 3px 0;">Range</button>
+      </div>
+      <div id="cov-mode-toggle" style="display:flex;gap:0;margin-left:auto;">
+        <button class="cov-toggle" onclick="covSetMode('audio')" style="border-radius:3px 0 0 3px;">Audio</button>
+        <button class="cov-toggle" onclick="covSetMode('digest')" style="border-radius:0;">Digest</button>
+        <button class="cov-toggle active" onclick="covSetMode('both')" style="border-radius:0 3px 3px 0;">Both</button>
+      </div>
     </div>
-    <div id="cov3d-view-toggle" style="position:absolute;top:20px;right:24px;display:flex;gap:0;">
-      <button class="cov-toggle active" onclick="cov3dSetView('cumulative')" style="border-radius:3px 0 0 3px;">Cumulative</button>
-      <button class="cov-toggle" onclick="cov3dSetView('latest')" style="border-radius:0 3px 3px 0;">Latest</button>
+    <div id="cov-range-controls" style="display:none;margin-bottom:12px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <input type="date" id="cov-range-start" onchange="covRangeChanged()">
+        <span style="color:var(--text-dim);">&mdash;</span>
+        <input type="date" id="cov-range-end" onchange="covRangeChanged()">
+        <span id="cov-range-label" style="margin-left:auto;font-size:11px;color:var(--accent);font-variant-numeric:tabular-nums;"></span>
+      </div>
+      <input type="range" id="cov-range-slider-start" min="0" max="10" value="0" oninput="covSliderChanged()" style="width:calc(50% - 8px);">
+      <input type="range" id="cov-range-slider-end" min="0" max="10" value="10" oninput="covSliderChanged()" style="width:calc(50% - 8px);">
     </div>
-    <div id="cov3d-sidebar" style="position:absolute;top:80px;right:24px;width:180px;"></div>
-    <div id="cov3d-controls" style="position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:#12121a;border:1px solid #222;border-radius:4px;padding:8px 16px;">
-      <button id="cov3d-play" onclick="cov3dTogglePlay()" style="background:none;border:1px solid #333;color:#7DF9AA;font-family:inherit;font-size:12px;padding:3px 10px;border-radius:3px;cursor:pointer;">&#9654;</button>
-      <label style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;">Episode</label>
-      <input type="range" id="cov3d-scrubber" min="0" max="29" value="29" oninput="cov3dScrub(this.value)" style="width:300px;accent-color:#7DF9AA;cursor:pointer;">
-      <span id="cov3d-ep-label" style="font-size:11px;color:#7DF9AA;min-width:60px;text-align:right;font-variant-numeric:tabular-nums;">Ep 30</span>
+    <div id="cov-stats" style="margin-bottom:8px;"></div>
+    <div style="position:relative;">
+      <canvas id="cov-canvas" style="display:block;width:100%;"></canvas>
+      <div id="cov-tooltip" class="cov-tooltip"></div>
+      <button id="cov-back" class="cov-back-btn" onclick="covSetView('radar')" style="display:none;position:absolute;top:12px;left:0;">&#8592; Back</button>
     </div>
-    <div id="cov3d-tooltip" style="position:absolute;z-index:20;pointer-events:none;background:#16161e;border:1px solid #7DF9AA44;border-radius:4px;padding:8px 12px;font-size:10px;line-height:1.6;color:#c8c8d0;display:none;max-width:220px;box-shadow:0 4px 20px rgba(0,0,0,0.5);"></div>
   </div>
 </div>
 
@@ -1707,13 +1803,693 @@ async function loadShowFormat() {
   }
 }
 
+// ===== COVERAGE TAB (Radar + Area Chart) =====
+let _cov = null;
+const COV_COLORS = [
+  '#7DF9AA','#5BC4F7','#F7A35B','#F75B7D','#D95BF7',
+  '#F7E85B','#5BF7D9','#F75B5B','#5B7DF7','#A3F75B',
+  '#F7C45B','#5BF7A3','#C45BF7','#8899AA',
+];
+const COV_AUDIO = '#5BC4F7';
+const COV_DIGEST = '#c4a052';
+
+async function covInit() {
+  if (_cov && _cov.loaded) { covDraw(); return; }
+  _cov = {
+    loaded: false, topics: [], episodes: [],
+    view: 'radar', tab: 'latest', mode: 'both',
+    rangeStart: 0, rangeEnd: 0,
+    trendTopic: null, hoverTopic: -1, trendHover: -1,
+    particles: [], animating: false, animId: null
+  };
+  try {
+    var res = await fetch(apiUrl('/api/coverage-dashboard'));
+    var data = await res.json();
+    if (!data.topics || !data.episodes || data.episodes.length < 1) return;
+    _cov.topics = data.topics;
+    _cov.episodes = data.episodes;
+    _cov.rangeStart = 0;
+    _cov.rangeEnd = data.episodes.length - 1;
+    _cov.loaded = true;
+    covInitRangeControls();
+    covUpdateStats();
+    covDraw();
+    var cv = document.getElementById('cov-canvas');
+    cv.onmousemove = covCanvasHover;
+    cv.onmouseleave = function() { _cov.hoverTopic = -1; _cov.trendHover = -1; document.getElementById('cov-tooltip').style.display = 'none'; if (!_cov.animating) covDraw(); };
+    cv.onclick = covCanvasClick;
+  } catch(e) {
+    console.error('Coverage init error:', e);
+  }
+}
+
+function covSetView(v) {
+  if (_cov.animating) return;
+  var prev = _cov.view;
+  _cov.view = v;
+  document.querySelectorAll('#cov-view-toggle .cov-toggle').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.toLowerCase() === v);
+  });
+  document.getElementById('cov-back').style.display = v === 'trend' ? 'block' : 'none';
+  if (v === 'trend' && _cov.trendTopic === null) _cov.trendTopic = 0;
+  if (prev !== v) covParticleTransition(function() { covDraw(); });
+  else covDraw();
+}
+
+function covSetTab(t) {
+  _cov.tab = t;
+  document.querySelectorAll('#cov-tab-toggle .cov-toggle').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.toLowerCase() === t);
+  });
+  document.getElementById('cov-range-controls').style.display = t === 'range' ? 'block' : 'none';
+  covUpdateStats();
+  covDraw();
+}
+
+function covSetMode(m) {
+  _cov.mode = m;
+  document.querySelectorAll('#cov-mode-toggle .cov-toggle').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.toLowerCase() === m);
+  });
+  covDraw();
+}
+
+function covInitRangeControls() {
+  var eps = _cov.episodes;
+  if (eps.length < 1) return;
+  var s = document.getElementById('cov-range-start');
+  var e = document.getElementById('cov-range-end');
+  s.value = eps[0].date;
+  e.value = eps[eps.length - 1].date;
+  var ss = document.getElementById('cov-range-slider-start');
+  var se = document.getElementById('cov-range-slider-end');
+  ss.max = eps.length - 1; ss.value = 0;
+  se.max = eps.length - 1; se.value = eps.length - 1;
+  covUpdateRangeLabel();
+}
+
+function covRangeChanged() {
+  var s = document.getElementById('cov-range-start').value;
+  var e = document.getElementById('cov-range-end').value;
+  var eps = _cov.episodes;
+  _cov.rangeStart = 0; _cov.rangeEnd = eps.length - 1;
+  for (var i = 0; i < eps.length; i++) { if (eps[i].date >= s) { _cov.rangeStart = i; break; } }
+  for (var i = eps.length - 1; i >= 0; i--) { if (eps[i].date <= e) { _cov.rangeEnd = i; break; } }
+  document.getElementById('cov-range-slider-start').value = _cov.rangeStart;
+  document.getElementById('cov-range-slider-end').value = _cov.rangeEnd;
+  covUpdateRangeLabel();
+  covUpdateStats();
+  covDraw();
+}
+
+function covSliderChanged() {
+  var ss = parseInt(document.getElementById('cov-range-slider-start').value);
+  var se = parseInt(document.getElementById('cov-range-slider-end').value);
+  if (ss > se) { var tmp = ss; ss = se; se = tmp; }
+  _cov.rangeStart = ss; _cov.rangeEnd = se;
+  var eps = _cov.episodes;
+  document.getElementById('cov-range-start').value = eps[ss].date;
+  document.getElementById('cov-range-end').value = eps[se].date;
+  covUpdateRangeLabel();
+  covUpdateStats();
+  covDraw();
+}
+
+function covUpdateRangeLabel() {
+  var eps = _cov.episodes;
+  var s = _cov.rangeStart, e = _cov.rangeEnd;
+  document.getElementById('cov-range-label').textContent =
+    'Ep ' + (s+1) + ' (' + eps[s].date.slice(5) + ') \u2014 Ep ' + (e+1) + ' (' + eps[e].date.slice(5) + ')';
+}
+
+function covGetSelectedEpisodes() {
+  if (_cov.tab === 'latest') return [_cov.episodes[_cov.episodes.length - 1]];
+  return _cov.episodes.slice(_cov.rangeStart, _cov.rangeEnd + 1);
+}
+
+function covComputeCoverage() {
+  var eps = covGetSelectedEpisodes();
+  var topics = _cov.topics;
+  var result = {};
+  for (var i = 0; i < topics.length; i++) {
+    var sum = 0, count = 0;
+    for (var j = 0; j < eps.length; j++) {
+      var c = eps[j].coverage[topics[i].name];
+      if (c) { sum += c.pct; count++; }
+    }
+    result[topics[i].name] = count > 0 ? sum / count : 0;
+  }
+  return result;
+}
+
+function covUpdateStats() {
+  var eps = covGetSelectedEpisodes();
+  var totalWords = 0;
+  for (var i = 0; i < eps.length; i++) totalWords += eps[i].total_words;
+  var label = _cov.tab === 'latest'
+    ? eps[0].date + ' \u00b7 ' + totalWords.toLocaleString() + ' words'
+    : eps.length + ' episodes \u00b7 ' + totalWords.toLocaleString() + ' total words';
+  document.getElementById('cov-stats').textContent = label;
+}
+
+function covDraw() {
+  if (!_cov || !_cov.loaded || _cov.animating) return;
+  if (_cov.view === 'radar') covDrawRadar();
+  else covDrawArea();
+}
+
+function covDrawRadar() {
+  if (!_cov || !_cov.loaded) return;
+  var canvas = document.getElementById('cov-canvas');
+  var wrap = document.getElementById('cov-wrap');
+  var dpr = window.devicePixelRatio || 1;
+  var topics = _cov.topics;
+  var nt = topics.length;
+  var coverage = covComputeCoverage();
+
+  var W = wrap.clientWidth;
+  var size = Math.min(W, window.innerHeight - 300);
+  var H = Math.max(480, size + 60);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  var cx = W / 2, cy = H / 2;
+  var R = (Math.min(W, H) - 140) / 2;
+  if (R < 60) return;
+
+  function ang(i) { return (i / nt) * Math.PI * 2 - Math.PI / 2; }
+  function pt(i, r) { return { x: cx + Math.cos(ang(i)) * r, y: cy + Math.sin(ang(i)) * r }; }
+
+  // Grid rings at 25%, 50%, 75%, 100%
+  [0.25, 0.5, 0.75, 1.0].forEach(function(pct) {
+    var r = pct * R;
+    ctx.strokeStyle = pct === 1.0 ? '#c4a05250' : '#ffffff0d';
+    ctx.lineWidth = pct === 1.0 ? 1.5 : 0.5;
+    ctx.beginPath();
+    for (var i = 0; i <= nt; i++) {
+      var p = pt(i % nt, r);
+      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath(); ctx.stroke();
+    if (pct < 1.0) {
+      ctx.fillStyle = '#444';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(Math.round(pct * 100) + '%', cx + 4, cy - r - 2);
+    }
+  });
+  // 100% label
+  ctx.fillStyle = '#c4a052';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('100%', cx + 4, cy - R - 3);
+
+  // Spokes
+  for (var i = 0; i < nt; i++) {
+    var p = pt(i, R + 5);
+    ctx.strokeStyle = '#ffffff08';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(p.x, p.y); ctx.stroke();
+  }
+
+  // Coverage values (capped visually at 2.5x for display)
+  var vals = [];
+  for (var i = 0; i < nt; i++) vals.push(coverage[topics[i].name] || 0);
+
+  // Draw polygon helper
+  function drawPoly(color, alpha) {
+    ctx.beginPath();
+    for (var i = 0; i < nt; i++) {
+      var v = Math.min(vals[i], 2.5);
+      var p = pt(i, v * R);
+      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    var cr = parseInt(color.slice(1,3),16), cg = parseInt(color.slice(3,5),16), cb = parseInt(color.slice(5,7),16);
+    ctx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+alpha+')';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  var mode = _cov.mode;
+  if (mode === 'audio' || mode === 'both') drawPoly(COV_AUDIO, 0.10);
+  if (mode === 'digest' || mode === 'both') drawPoly(COV_DIGEST, 0.14);
+
+  // Dots at vertices
+  for (var i = 0; i < nt; i++) {
+    var v = Math.min(vals[i], 2.5);
+    var p = pt(i, v * R);
+    var isH = (_cov.hoverTopic === i);
+    var dotC = (mode === 'audio') ? COV_AUDIO : (mode === 'digest') ? COV_DIGEST : COV_COLORS[i % COV_COLORS.length];
+    ctx.fillStyle = dotC;
+    ctx.beginPath(); ctx.arc(p.x, p.y, isH ? 7 : 4, 0, Math.PI * 2); ctx.fill();
+    if (isH) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  // Topic labels around perimeter
+  for (var i = 0; i < nt; i++) {
+    var a = ang(i);
+    var lr = R + 28;
+    var lx = cx + Math.cos(a) * lr;
+    var ly = cy + Math.sin(a) * lr;
+    var isH = (_cov.hoverTopic === i);
+    ctx.fillStyle = isH ? '#fff' : COV_COLORS[i % COV_COLORS.length];
+    ctx.font = (isH ? 'bold ' : '') + '10px monospace';
+    ctx.textBaseline = 'middle';
+    // Text alignment based on position
+    if (a > -0.3 && a < 0.3) ctx.textAlign = 'center';
+    else if (a >= 0.3 && a <= Math.PI - 0.3) ctx.textAlign = (Math.cos(a) >= 0) ? 'left' : 'right';
+    else if (a > Math.PI - 0.3 || a < -Math.PI + 0.3) ctx.textAlign = 'center';
+    else ctx.textAlign = (Math.cos(a) >= 0) ? 'left' : 'right';
+    var name = topics[i].name.length > 14 ? topics[i].name.slice(0,13) + '\u2026' : topics[i].name;
+    ctx.fillText(name + ' (' + topics[i].alloc_min + 'm)', lx, ly);
+    // Coverage pct below
+    ctx.fillStyle = isH ? '#aaa' : '#555';
+    ctx.font = '8px monospace';
+    ctx.fillText(Math.round(vals[i] * 100) + '%', lx, ly + 12);
+  }
+
+  // Mode legend
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  var legY = H - 20;
+  if (mode === 'both' || mode === 'audio') {
+    ctx.fillStyle = COV_AUDIO; ctx.fillRect(10, legY, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText('Audio (est.)', 26, legY);
+  }
+  if (mode === 'both' || mode === 'digest') {
+    var ox = mode === 'both' ? 120 : 10;
+    ctx.fillStyle = COV_DIGEST; ctx.fillRect(ox, legY, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText('Digest', ox + 16, legY);
+  }
+
+  // Store layout for hover
+  _cov.radarLayout = { cx: cx, cy: cy, R: R, nt: nt, vals: vals };
+}
+
+function covDrawArea() {
+  if (!_cov || !_cov.loaded || _cov.trendTopic === null) return;
+  var canvas = document.getElementById('cov-canvas');
+  var wrap = document.getElementById('cov-wrap');
+  var dpr = window.devicePixelRatio || 1;
+  var W = wrap.clientWidth;
+  var H = Math.max(400, Math.min(600, window.innerHeight - 280));
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  var pad = { top: 44, right: 50, bottom: 50, left: 60 };
+  var plotW = W - pad.left - pad.right;
+  var plotH = H - pad.top - pad.bottom;
+  var ti = _cov.trendTopic;
+  var topic = _cov.topics[ti];
+  var color = COV_COLORS[ti % COV_COLORS.length];
+  var eps = covGetSelectedEpisodes();
+  var ne = eps.length;
+  if (ne < 1) return;
+
+  var values = eps.map(function(ep) { var c = ep.coverage[topic.name]; return c ? c.pct : 0; });
+  var maxVal = Math.max(1.3, Math.max.apply(null, values)) * 1.1;
+
+  // Title
+  ctx.fillStyle = color;
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(topic.name + ' (' + topic.alloc_min + 'm / ~' + topic.target_words + ' words)', pad.left, 8);
+
+  // Y-axis grid
+  var ySteps = 5;
+  for (var i = 0; i <= ySteps; i++) {
+    var yy = pad.top + plotH - (i / ySteps) * plotH;
+    ctx.strokeStyle = '#1a1a2a';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(pad.left + plotW, yy); ctx.stroke();
+    ctx.fillStyle = '#555';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(i / ySteps * maxVal * 100) + '%', pad.left - 8, yy);
+  }
+
+  // 100% dashed reference
+  var y100 = pad.top + plotH - (1.0 / maxVal) * plotH;
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, y100); ctx.lineTo(pad.left + plotW, y100); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#666';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('target', pad.left + plotW + 6, y100);
+
+  // X-axis labels
+  ctx.fillStyle = '#555';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  var step = Math.max(1, Math.floor(ne / 12));
+  for (var i = 0; i < ne; i += step) {
+    var xx = pad.left + (ne > 1 ? (i / (ne - 1)) * plotW : plotW / 2);
+    ctx.fillText(eps[i].date.slice(5), xx, pad.top + plotH + 10);
+  }
+
+  // Helper: draw filled area + line
+  function drawAreaFill(fillColor, strokeColor, alpha) {
+    if (ne < 2) return;
+    // Fill
+    ctx.beginPath();
+    for (var i = 0; i < ne; i++) {
+      var xx = pad.left + (i / (ne - 1)) * plotW;
+      var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
+      i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
+    }
+    ctx.lineTo(pad.left + plotW, pad.top + plotH);
+    ctx.lineTo(pad.left, pad.top + plotH);
+    ctx.closePath();
+    var cr = parseInt(fillColor.slice(1,3),16), cg = parseInt(fillColor.slice(3,5),16), cb = parseInt(fillColor.slice(5,7),16);
+    ctx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+alpha+')';
+    ctx.fill();
+    // Stroke
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (var i = 0; i < ne; i++) {
+      var xx = pad.left + (i / (ne - 1)) * plotW;
+      var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
+      i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
+    }
+    ctx.stroke();
+  }
+
+  var mode = _cov.mode;
+  if (mode === 'audio' || mode === 'both') drawAreaFill(COV_AUDIO, COV_AUDIO, 0.10);
+  if (mode === 'digest' || mode === 'both') drawAreaFill(COV_DIGEST, COV_DIGEST, 0.14);
+
+  // Dots
+  for (var i = 0; i < ne; i++) {
+    var xx = pad.left + (ne > 1 ? (i / (ne - 1)) * plotW : plotW / 2);
+    var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
+    var isH = (_cov.trendHover === i);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(xx, yy, isH ? 6 : 3, 0, Math.PI * 2); ctx.fill();
+    if (isH) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  // Mode legend
+  ctx.font = '9px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  if (mode === 'both' || mode === 'audio') {
+    ctx.fillStyle = COV_AUDIO; ctx.fillRect(W - 160, pad.top + 4, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText('Audio (est.)', W - 90, pad.top + 4);
+  }
+  if (mode === 'both' || mode === 'digest') {
+    var oy = mode === 'both' ? pad.top + 18 : pad.top + 4;
+    ctx.fillStyle = COV_DIGEST; ctx.fillRect(W - 160, oy, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText('Digest', W - 90, oy);
+  }
+
+  // Store layout for hover
+  _cov.areaLayout = { pad: pad, plotW: plotW, plotH: plotH, W: W, H: H, ne: ne, values: values, maxVal: maxVal, eps: eps };
+}
+
+// ===== PARTICLE TRANSITION =====
+
+function covParticleTransition(onComplete) {
+  if (_cov.animating) { if (onComplete) onComplete(); return; }
+  _cov.animating = true;
+  if (_cov.animId) cancelAnimationFrame(_cov.animId);
+
+  var canvas = document.getElementById('cov-canvas');
+  var dpr = window.devicePixelRatio || 1;
+  var W = parseFloat(canvas.style.width) || canvas.width / dpr;
+  var H = parseFloat(canvas.style.height) || canvas.height / dpr;
+
+  var particles = covCreateParticles(W, H);
+  _cov.particles = particles;
+  covCalcTargets(particles, W, H);
+
+  var start = performance.now();
+  var dissolveDur = 300, reformDur = 500, totalDur = dissolveDur + reformDur;
+
+  function frame() {
+    var t = performance.now() - start;
+    if (t >= totalDur) {
+      _cov.animating = false;
+      _cov.particles = [];
+      _cov.animId = null;
+      if (onComplete) onComplete();
+      return;
+    }
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    if (t < dissolveDur) {
+      var p = t / dissolveDur;
+      for (var i = 0; i < particles.length; i++) {
+        var pt = particles[i];
+        pt.x += pt.vx * 0.4;
+        pt.y += pt.vy * 0.4;
+        pt.vx *= 0.96; pt.vy *= 0.96;
+        pt.alpha = 1 - p * 0.4;
+      }
+    } else {
+      var p = (t - dissolveDur) / reformDur;
+      var ease = 1 - Math.pow(1 - p, 3);
+      for (var i = 0; i < particles.length; i++) {
+        var pt = particles[i];
+        pt.x += (pt.tx - pt.x) * ease * 0.12;
+        pt.y += (pt.ty - pt.y) * ease * 0.12;
+        pt.alpha = 0.5 + p * 0.5;
+      }
+    }
+
+    covRenderParticles(ctx, particles);
+    _cov.animId = requestAnimationFrame(frame);
+  }
+  _cov.animId = requestAnimationFrame(frame);
+}
+
+function covCreateParticles(W, H) {
+  var particles = [];
+  var topics = _cov.topics;
+  var coverage = covComputeCoverage();
+  var nt = topics.length;
+
+  // Capture current positions from the source view
+  var srcView = (_cov.view === 'trend') ? 'radar' : 'trend'; // opposite of destination
+
+  for (var i = 0; i < nt; i++) {
+    var pct = coverage[topics[i].name] || 0;
+    var count = Math.max(2, Math.min(80, Math.round(pct * 60)));
+    var color = COV_COLORS[i % COV_COLORS.length];
+
+    for (var j = 0; j < count; j++) {
+      var sx, sy;
+      if (srcView === 'radar' || !_cov.areaLayout) {
+        // Source from radar positions
+        var a = (i / nt) * Math.PI * 2 - Math.PI / 2;
+        var v = Math.min(pct, 2.5);
+        var cx = W / 2, cy = H / 2, R = (Math.min(W, H) - 140) / 2;
+        var r = v * R * (0.2 + Math.random() * 0.8);
+        sx = cx + Math.cos(a + (Math.random() - 0.5) * 0.4) * r;
+        sy = cy + Math.sin(a + (Math.random() - 0.5) * 0.4) * r;
+      } else {
+        // Source from area chart positions
+        var lay = _cov.areaLayout;
+        var epIdx = Math.floor(Math.random() * lay.ne);
+        sx = lay.pad.left + (lay.ne > 1 ? (epIdx / (lay.ne - 1)) * lay.plotW : lay.plotW / 2);
+        sy = lay.pad.top + lay.plotH - ((lay.values[epIdx] || 0) / lay.maxVal) * lay.plotH;
+        sx += (Math.random() - 0.5) * 15;
+        sy += (Math.random() - 0.5) * 15;
+      }
+
+      particles.push({
+        x: sx, y: sy,
+        vx: (Math.random() - 0.5) * 5,
+        vy: (Math.random() - 0.5) * 5,
+        tx: 0, ty: 0,
+        color: color, size: 1.5 + Math.random() * 2, alpha: 1,
+        topicIdx: i
+      });
+    }
+  }
+  return particles;
+}
+
+function covCalcTargets(particles, W, H) {
+  var topics = _cov.topics;
+  var nt = topics.length;
+  var coverage = covComputeCoverage();
+
+  if (_cov.view === 'radar') {
+    var cx = W / 2, cy = H / 2;
+    var R = (Math.min(W, H) - 140) / 2;
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var ti = p.topicIdx;
+      var a = (ti / nt) * Math.PI * 2 - Math.PI / 2;
+      var v = Math.min(coverage[topics[ti].name] || 0, 2.5);
+      var r = v * R * (0.2 + Math.random() * 0.8);
+      p.tx = cx + Math.cos(a + (Math.random() - 0.5) * 0.35) * r;
+      p.ty = cy + Math.sin(a + (Math.random() - 0.5) * 0.35) * r;
+    }
+  } else {
+    var pad = { top: 44, right: 50, bottom: 50, left: 60 };
+    var plotW = W - pad.left - pad.right;
+    var plotH = H - pad.top - pad.bottom;
+    var ti = _cov.trendTopic || 0;
+    var topic = topics[ti];
+    var eps = covGetSelectedEpisodes();
+    var ne = eps.length;
+    var values = eps.map(function(ep) { var c = ep.coverage[topic.name]; return c ? c.pct : 0; });
+    var maxVal = Math.max(1.3, Math.max.apply(null, values)) * 1.1;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var epIdx = Math.floor(Math.random() * ne);
+      var xx = pad.left + (ne > 1 ? (epIdx / (ne - 1)) * plotW : plotW / 2);
+      var yy = pad.top + plotH - (values[epIdx] / maxVal) * plotH;
+      p.tx = xx + (Math.random() - 0.5) * 20;
+      p.ty = yy + Math.random() * (pad.top + plotH - yy) * 0.8;
+    }
+  }
+}
+
+function covRenderParticles(ctx, particles) {
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    ctx.globalAlpha = Math.max(0, p.alpha);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ===== HOVER & CLICK =====
+
+function covCanvasHover(e) {
+  if (!_cov || !_cov.loaded || _cov.animating) return;
+  var canvas = document.getElementById('cov-canvas');
+  var rect = canvas.getBoundingClientRect();
+  var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  var tip = document.getElementById('cov-tooltip');
+
+  if (_cov.view === 'radar' && _cov.radarLayout) {
+    var lay = _cov.radarLayout;
+    var bestDist = 999, bestIdx = -1;
+    for (var i = 0; i < lay.nt; i++) {
+      var a = (i / lay.nt) * Math.PI * 2 - Math.PI / 2;
+      // Check dot
+      var v = Math.min(lay.vals[i], 2.5);
+      var px = lay.cx + Math.cos(a) * v * lay.R;
+      var py = lay.cy + Math.sin(a) * v * lay.R;
+      var d = Math.sqrt((mx-px)*(mx-px) + (my-py)*(my-py));
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+      // Check along spoke
+      var lr = lay.R + 40;
+      var dx = Math.cos(a), dy = Math.sin(a);
+      var proj = (mx - lay.cx) * dx + (my - lay.cy) * dy;
+      if (proj > 0 && proj < lr) {
+        var perpX = (mx - lay.cx) - proj * dx;
+        var perpY = (my - lay.cy) - proj * dy;
+        var pd = Math.sqrt(perpX*perpX + perpY*perpY);
+        if (pd < 18 && pd < bestDist) { bestDist = pd; bestIdx = i; }
+      }
+    }
+    if (bestDist > 40) bestIdx = -1;
+
+    if (bestIdx !== _cov.hoverTopic) {
+      _cov.hoverTopic = bestIdx;
+      covDraw();
+    }
+    if (bestIdx >= 0) {
+      canvas.style.cursor = 'pointer';
+      var topic = _cov.topics[bestIdx];
+      var pct = lay.vals[bestIdx];
+      var clr = COV_COLORS[bestIdx % COV_COLORS.length];
+      tip.innerHTML = '<div style="color:'+clr+';font-weight:700">'+esc(topic.name)+'</div>'
+        + '<div>'+Math.round(pct * 100)+'% avg coverage</div>'
+        + '<div style="color:#666">Target: '+topic.alloc_min+'m / ~'+topic.target_words+' words</div>'
+        + '<div style="color:#555;font-size:9px">Click to view trend</div>';
+      tip.style.display = 'block';
+      var wr = wrap_rect();
+      tip.style.left = (e.clientX - wr.left + 14) + 'px';
+      tip.style.top = (e.clientY - wr.top - 10) + 'px';
+    } else {
+      canvas.style.cursor = 'crosshair';
+      tip.style.display = 'none';
+    }
+
+  } else if (_cov.view === 'trend' && _cov.areaLayout) {
+    var lay = _cov.areaLayout;
+    var relX = (mx - lay.pad.left) / lay.plotW;
+    var idx = Math.round(relX * Math.max(1, lay.ne - 1));
+    if (idx < 0) idx = 0; if (idx >= lay.ne) idx = lay.ne - 1;
+
+    if (relX >= -0.05 && relX <= 1.05) {
+      if (idx !== _cov.trendHover) { _cov.trendHover = idx; covDraw(); }
+      canvas.style.cursor = 'crosshair';
+      var ti = _cov.trendTopic;
+      var topic = _cov.topics[ti];
+      var ep = lay.eps[idx];
+      var cov = ep.coverage[topic.name];
+      var pct = cov ? cov.pct : 0;
+      var actual = cov ? cov.actual_words : 0;
+      var target = cov ? cov.target_words : 0;
+      var clr = COV_COLORS[ti % COV_COLORS.length];
+      tip.innerHTML = '<div style="color:'+clr+';font-weight:700">'+ep.date+'</div>'
+        + '<div>'+Math.round(pct*100)+'% coverage</div>'
+        + '<div style="color:#666">'+actual+' / '+target+' words</div>';
+      tip.style.display = 'block';
+      var wr = wrap_rect();
+      tip.style.left = (e.clientX - wr.left + 14) + 'px';
+      tip.style.top = (e.clientY - wr.top - 10) + 'px';
+    } else {
+      _cov.trendHover = -1; covDraw();
+      tip.style.display = 'none';
+    }
+  }
+}
+
+function wrap_rect() { return document.getElementById('cov-wrap').getBoundingClientRect(); }
+
+function covCanvasClick(e) {
+  if (!_cov || !_cov.loaded || _cov.animating) return;
+  if (_cov.view === 'radar' && _cov.hoverTopic >= 0) {
+    _cov.trendTopic = _cov.hoverTopic;
+    _cov.hoverTopic = -1;
+    document.getElementById('cov-tooltip').style.display = 'none';
+    covSetView('trend');
+  }
+}
+
+window.addEventListener('resize', function() {
+  if (!_cov || !_cov.loaded) return;
+  covDraw();
+});
+
 function switchTab(tab, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   if (btn) btn.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'history') loadHistory();
-  if (tab === 'coverage3d') { cov3dInit(); }
+  if (tab === 'coverage') { covInit(); }
   if (tab === 'settings') { loadPromptConfig(); renderShowFormat(); }
 }
 
