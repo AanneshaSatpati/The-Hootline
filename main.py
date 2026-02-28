@@ -1462,6 +1462,22 @@ DASHBOARD_HTML = """\
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
+  /* Coverage 3D */
+  .cov-toggle {
+    background: transparent; border: 1px solid #333; color: #666;
+    font-family: inherit; font-size: 11px; padding: 6px 14px;
+    cursor: pointer; letter-spacing: 1px;
+  }
+  .cov-toggle.active { background: #7DF9AA15; border-color: #7DF9AA; color: #7DF9AA; }
+  .cov-toggle:hover:not(.active) { border-color: #555; color: #999; }
+  .cov-topic { display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer; user-select:none; }
+  .cov-topic:hover { opacity:1 !important; }
+  .cov-topic .cdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .cov-topic .clbl { font-size:10px; color:#777; letter-spacing:0.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cov-topic .cpct { margin-left:auto; font-size:9px; color:#555; font-variant-numeric:tabular-nums; }
+  .cov-topic.off .cdot { opacity:0.2; }
+  .cov-topic.off .clbl { color:#444; text-decoration:line-through; }
+
   /* Latest: two-column */
   .latest-layout { display: flex; gap: 24px; max-width: 1200px; margin: 0 auto; padding: 24px; align-items: flex-start; }
   .latest-left { flex: 1; min-width: 0; }
@@ -1622,7 +1638,25 @@ DASHBOARD_HTML = """\
 </div>
 
 <div id="tab-coverage3d" class="tab-content">
-  <iframe id="coverage3d-frame" style="width:100%;height:calc(100vh - 80px);border:none;border-radius:6px;"></iframe>
+  <div id="cov3d-wrap" style="position:relative;width:100%;height:calc(100vh - 80px);background:#0a0a0f;border-radius:6px;overflow:hidden;">
+    <canvas id="cov3d-canvas" style="display:block;width:100%;height:100%;"></canvas>
+    <div id="cov3d-header" style="position:absolute;top:20px;left:24px;pointer-events:none;">
+      <div style="font-size:14px;font-weight:700;color:#7DF9AA;letter-spacing:2px;text-transform:uppercase;">Topic Coverage</div>
+      <div id="cov3d-subtitle" style="font-size:10px;color:#555;margin-top:4px;letter-spacing:1px;"></div>
+    </div>
+    <div id="cov3d-view-toggle" style="position:absolute;top:20px;right:24px;display:flex;gap:0;">
+      <button class="cov-toggle active" onclick="cov3dSetView('cumulative')" style="border-radius:3px 0 0 3px;">Cumulative</button>
+      <button class="cov-toggle" onclick="cov3dSetView('latest')" style="border-radius:0 3px 3px 0;">Latest</button>
+    </div>
+    <div id="cov3d-sidebar" style="position:absolute;top:80px;right:24px;width:180px;"></div>
+    <div id="cov3d-controls" style="position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:#12121a;border:1px solid #222;border-radius:4px;padding:8px 16px;">
+      <button id="cov3d-play" onclick="cov3dTogglePlay()" style="background:none;border:1px solid #333;color:#7DF9AA;font-family:inherit;font-size:12px;padding:3px 10px;border-radius:3px;cursor:pointer;">&#9654;</button>
+      <label style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;">Episode</label>
+      <input type="range" id="cov3d-scrubber" min="0" max="29" value="29" oninput="cov3dScrub(this.value)" style="width:300px;accent-color:#7DF9AA;cursor:pointer;">
+      <span id="cov3d-ep-label" style="font-size:11px;color:#7DF9AA;min-width:60px;text-align:right;font-variant-numeric:tabular-nums;">Ep 30</span>
+    </div>
+    <div id="cov3d-tooltip" style="position:absolute;z-index:20;pointer-events:none;background:#16161e;border:1px solid #7DF9AA44;border-radius:4px;padding:8px 12px;font-size:10px;line-height:1.6;color:#c8c8d0;display:none;max-width:220px;box-shadow:0 4px 20px rgba(0,0,0,0.5);"></div>
+  </div>
 </div>
 
 <div id="tab-settings" class="tab-content">
@@ -1679,13 +1713,7 @@ function switchTab(tab, btn) {
   if (btn) btn.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'history') loadHistory();
-  if (tab === 'coverage3d') {
-    const frame = document.getElementById('coverage3d-frame');
-    if (!frame.dataset.loaded) {
-      frame.src = '/static/coverage-3d.html?show_id=' + encodeURIComponent(SHOW_ID);
-      frame.dataset.loaded = '1';
-    }
-  }
+  if (tab === 'coverage3d') { cov3dInit(); }
   if (tab === 'settings') { loadPromptConfig(); renderShowFormat(); }
 }
 
