@@ -129,6 +129,7 @@
 
 <div id="tooltip"></div>
 <div id="click-hint">click spoke for topic trend · click ring for episode radar</div>
+<div id="debug-status" style="position:absolute;bottom:4px;left:8px;z-index:20;font-size:9px;color:#333;pointer-events:none;"></div>
 
 <div id="overlay-2d">
   <canvas id="chart-2d"></canvas>
@@ -139,6 +140,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
+if (typeof THREE === 'undefined') {
+  document.body.innerHTML = '<div style="color:#f55;padding:40px;font-family:monospace;">Three.js failed to load. Check network/console.</div>';
+  throw new Error('Three.js not loaded');
+}
 // ── DATA ──────────────────────────────────────────────────────────────────────
 
 let TOPICS = [
@@ -235,15 +240,21 @@ let tweenCallback = null;
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0f);
-scene.fog = new THREE.FogExp2(0x0a0a0f, 0.003);
+scene.fog = new THREE.FogExp2(0x0a0a0f, 0.0015);
 
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 2000);
 camera.position.set(0, 8, 30);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-container.appendChild(renderer.domElement);
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+} catch(e) {
+  document.body.innerHTML = '<div style="color:#f55;padding:40px;font-family:monospace;">WebGL not available: ' + e.message + '</div>';
+  throw e;
+}
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -342,8 +353,8 @@ function buildSliceShape(epIdx) {
   const dim = new THREE.Color(0x0d1f15);
   const bright = new THREE.Color(0x7DF9AA);
   const mat = new THREE.MeshBasicMaterial({
-    color: dim.clone().lerp(bright, 0.1+timeFrac*0.2),
-    transparent: true, opacity: 0.06+timeFrac*0.18,
+    color: dim.clone().lerp(bright, 0.15+timeFrac*0.35),
+    transparent: true, opacity: 0.12+timeFrac*0.30,
     side: THREE.DoubleSide, depthWrite: false,
   });
   const mesh = new THREE.Mesh(geo, mat);
@@ -367,8 +378,8 @@ function buildSliceOutline(epIdx) {
   const dim = new THREE.Color(0x1a3a2a);
   const bright = new THREE.Color(0x7DF9AA);
   const mat = new THREE.LineBasicMaterial({
-    color: dim.clone().lerp(bright, 0.15+timeFrac*0.85),
-    transparent: true, opacity: 0.12+timeFrac*0.7,
+    color: dim.clone().lerp(bright, 0.25+timeFrac*0.75),
+    transparent: true, opacity: 0.25+timeFrac*0.75,
   });
   const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
   line.position.z = z;
@@ -928,18 +939,24 @@ function animate() {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
+const _dbg = document.getElementById('debug-status');
+function dbg(msg) { if (_dbg) _dbg.textContent = msg; console.log('[Coverage3D]', msg); }
+
 async function init() {
-  await loadRealData();
+  dbg('Loading data...');
+  const loaded = await loadRealData();
+  dbg('Data: ' + (loaded ? 'real' : 'mock') + ' | Topics: ' + NUM_TOPICS + ' | Episodes: ' + NUM_EPISODES);
   controls.target.set(0, 0, -((NUM_EPISODES-1)*Z_SPACING)/2);
   camera.position.set(0, 8, 30);
   controls.update();
   buildSidebar();
   buildAxes();
   rebuildScene();
+  dbg('Ready | Slices: ' + sliceGroup.children.length + ' | WebGL: ' + (renderer.getContext() ? 'ok' : 'FAIL'));
   animate();
 }
 
-init();
+init().catch(e => { dbg('ERROR: ' + e.message); console.error('[Coverage3D] Init error:', e); });
 </script>
 </body>
 </html>
