@@ -25,7 +25,6 @@
     z-index: 1;
   }
 
-  /* Header */
   #header {
     position: absolute;
     top: 20px; left: 24px;
@@ -46,7 +45,6 @@
     letter-spacing: 1px;
   }
 
-  /* View toggle */
   #view-toggle {
     position: absolute;
     top: 20px; right: 24px;
@@ -77,7 +75,6 @@
     color: #999;
   }
 
-  /* Sidebar topic toggles */
   #sidebar {
     position: absolute;
     top: 80px; right: 24px;
@@ -117,7 +114,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Timeline scrubber */
   #timeline {
     position: absolute;
     bottom: 24px;
@@ -164,7 +160,6 @@
   }
   #play-btn:hover { border-color: #7DF9AA; }
 
-  /* Tooltip */
   #tooltip {
     position: absolute;
     z-index: 20;
@@ -214,7 +209,6 @@
 <script>
 // ── DATA ──────────────────────────────────────────────────────────────────────
 
-// Defaults — overwritten by API data when available
 let TOPICS = [
   { name: "Latest in Tech",   alloc: 5 },
   { name: "Product Mgmt",     alloc: 4 },
@@ -235,71 +229,51 @@ let TOPICS = [
 let NUM_TOPICS = TOPICS.length;
 let NUM_EPISODES = 30;
 
-// Topic colors — distinct hues around the wheel
 const TOPIC_COLORS = [
   0x7DF9AA, 0x5BC4F7, 0xF7A35B, 0xF75B7D, 0xD95BF7,
   0xF7E85B, 0x5BF7D9, 0xF75B5B, 0x5B7DF7, 0xA3F75B,
   0xF7C45B, 0x5BF7A3, 0xC45BF7, 0x8899AA,
 ];
 
-// Generate realistic mock data (fallback when API unavailable)
 function generateMockData() {
   const episodes = [];
   const baselines = [0.7, 0.3, 0.8, 0.65, 0.5, 0.75, 0.6, 0.55, 0.4, 0.35, 0.25, 0.6, 0.45, 0.7];
   const trends = [0.005, -0.008, 0.003, 0.002, 0.01, -0.003, 0.008, 0.004, -0.005, 0.012, -0.006, 0.001, 0.003, -0.002];
   const peakEp = [null, null, null, null, 20, null, 15, 18, null, 22, null, null, 12, null];
-
   for (let ep = 0; ep < 30; ep++) {
     const coverage = [];
     for (let t = 0; t < TOPICS.length; t++) {
       let base = (baselines[t] || 0.5) + (trends[t] || 0) * ep;
-      if (peakEp[t] !== null) {
-        const dist = ep - peakEp[t];
-        base += 0.3 * Math.exp(-dist * dist / 18);
-      }
-      const noise = (Math.random() - 0.5) * 0.25;
-      let val = base + noise;
+      if (peakEp[t] !== null) base += 0.3 * Math.exp(-(ep - peakEp[t]) ** 2 / 18);
+      let val = base + (Math.random() - 0.5) * 0.25;
       if (ep % 7 >= 5 && t < 6) val *= 0.7;
       val = Math.max(0, Math.min(1.3, val));
       if (Math.random() < 0.08) val = 0;
       coverage.push(Math.round(val * 100) / 100);
     }
-    episodes.push({
-      episode: ep + 1,
-      date: `2026-02-${String(ep + 1).padStart(2, '0')}`,
-      coverage,
-    });
+    episodes.push({ episode: ep + 1, date: `2026-02-${String(ep + 1).padStart(2, '0')}`, coverage });
   }
   return episodes;
 }
 
 let EPISODES = generateMockData();
 
-// Fetch real data from API
 async function loadRealData() {
   try {
     const res = await fetch('/api/topic-coverage-3d');
     if (!res.ok) return false;
     const data = await res.json();
     if (!data.episodes || data.episodes.length < 2) return false;
-
     TOPICS = data.topics;
     NUM_TOPICS = TOPICS.length;
-    EPISODES = data.episodes.map((ep, i) => ({
-      episode: i + 1,
-      date: ep.date,
-      coverage: ep.coverage,
-    }));
+    EPISODES = data.episodes.map((ep, i) => ({ episode: i + 1, date: ep.date, coverage: ep.coverage }));
     NUM_EPISODES = EPISODES.length;
     topicVisible = new Array(NUM_TOPICS).fill(true);
-
-    // Update UI
     document.getElementById('scrubber').max = NUM_EPISODES - 1;
     document.getElementById('scrubber').value = NUM_EPISODES - 1;
     scrubberValue = NUM_EPISODES - 1;
     document.getElementById('episode-label').textContent = `Ep ${NUM_EPISODES}`;
-    document.querySelector('#header p').textContent = `3D radar · ${NUM_EPISODES} episodes`;
-
+    document.querySelector('#header p').textContent = `3D radar \u00b7 ${NUM_EPISODES} episodes`;
     return true;
   } catch (e) {
     console.warn('API unavailable, using mock data:', e);
@@ -309,7 +283,7 @@ async function loadRealData() {
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 
-let viewMode = 'cumulative'; // 'cumulative' | 'latest'
+let viewMode = 'cumulative';
 let scrubberValue = NUM_EPISODES - 1;
 let topicVisible = new Array(NUM_TOPICS).fill(true);
 let isPlaying = false;
@@ -320,10 +294,10 @@ let playInterval = null;
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0f);
-scene.fog = new THREE.FogExp2(0x0a0a0f, 0.015);
+scene.fog = new THREE.FogExp2(0x0a0a0f, 0.003);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
-camera.position.set(12, 10, 20);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.set(0, 8, 30);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -333,358 +307,172 @@ container.appendChild(renderer.domElement);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.target.set(0, 0, -8);
+controls.target.set(0, 0, -((NUM_EPISODES - 1) * 15) / 2);
 controls.minDistance = 5;
-controls.maxDistance = 60;
+controls.maxDistance = 800;
 controls.update();
 
-// Lighting
-const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambient);
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-dirLight.position.set(10, 20, 15);
-scene.add(dirLight);
 
-// ── GEOMETRY BUILDERS ─────────────────────────────────────────────────────────
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
 
-const Z_SPACING = 0.9;
-const RADIUS_SCALE = 6;
+const Z_SPACING = 15;
+const RADIUS_SCALE = 8;
 
-// Radar axis helpers
 function topicAngle(i) {
   return (i / NUM_TOPICS) * Math.PI * 2 - Math.PI / 2;
 }
 
-function radarPoint(topicIdx, value, z) {
-  const angle = topicAngle(topicIdx);
-  const r = value * RADIUS_SCALE;
-  return new THREE.Vector3(
-    Math.cos(angle) * r,
-    Math.sin(angle) * r,
-    z
-  );
-}
+// ── GROUPS ────────────────────────────────────────────────────────────────────
 
-// Groups for managing visibility
 const sliceGroup = new THREE.Group();
-const ribbonGroup = new THREE.Group();
 const axisGroup = new THREE.Group();
 scene.add(sliceGroup);
-scene.add(ribbonGroup);
 scene.add(axisGroup);
 
-// ── AXIS LINES & LABELS ──────────────────────────────────────────────────────
+const sliceMeshes = []; // for raycasting
+
+// ── AXIS SPOKES & GUIDE RINGS ─────────────────────────────────────────────────
 
 function buildAxes() {
   while (axisGroup.children.length) axisGroup.remove(axisGroup.children[0]);
 
-  const axisMat = new THREE.LineBasicMaterial({ color: 0x222233, transparent: true, opacity: 0.5 });
-
+  // Spokes at z=0 (front reference plane)
+  const spokeMat = new THREE.LineBasicMaterial({ color: 0x222233, transparent: true, opacity: 0.4 });
   for (let t = 0; t < NUM_TOPICS; t++) {
-    const angle = topicAngle(t);
+    const a = topicAngle(t);
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(Math.cos(angle) * RADIUS_SCALE * 1.4, Math.sin(angle) * RADIUS_SCALE * 1.4, 0),
+      new THREE.Vector3(Math.cos(a) * RADIUS_SCALE * 1.35, Math.sin(a) * RADIUS_SCALE * 1.35, 0),
     ]);
-    const line = new THREE.Line(geo, axisMat);
-    axisGroup.add(line);
+    axisGroup.add(new THREE.Line(geo, spokeMat));
   }
 
-  // Concentric guide rings at 50% and 100%
+  // Guide rings at 50% and 100%
   [0.5, 1.0].forEach(pct => {
     const pts = [];
     for (let i = 0; i <= NUM_TOPICS; i++) {
-      const angle = topicAngle(i % NUM_TOPICS);
+      const a = topicAngle(i % NUM_TOPICS);
       const r = pct * RADIUS_SCALE;
-      pts.push(new THREE.Vector3(Math.cos(angle) * r, Math.sin(angle) * r, 0));
+      pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
     }
-    const ringGeo = new THREE.BufferGeometry().setFromPoints(pts);
-    const ringMat = new THREE.LineBasicMaterial({
+    const mat = new THREE.LineBasicMaterial({
       color: pct === 1.0 ? 0x333344 : 0x1a1a2a,
       transparent: true,
-      opacity: pct === 1.0 ? 0.6 : 0.3,
+      opacity: pct === 1.0 ? 0.5 : 0.25,
     });
-    axisGroup.add(new THREE.Line(ringGeo, ringMat));
+    axisGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
   });
 }
 
-buildAxes();
+// ── BUILD ONE FLAT RADAR SLICE ────────────────────────────────────────────────
+// Each slice is a flat polygon in the XY plane, translated along Z.
+// Built using THREE.Shape (2D) → ShapeGeometry → positioned at z.
 
-// ── BUILD RADAR SLICES ────────────────────────────────────────────────────────
-
-const sliceMeshes = [];    // One per episode
-const ribbonMeshes = [];   // One per topic (ribbon connecting slices)
-
-function buildSlice(epIdx) {
+function buildSliceShape(epIdx) {
   const ep = EPISODES[epIdx];
   const z = -epIdx * Z_SPACING;
-  const timeFrac = epIdx / (NUM_EPISODES - 1); // 0=oldest, 1=newest
+  const timeFrac = NUM_EPISODES > 1 ? epIdx / (NUM_EPISODES - 1) : 1;
 
-  // Polygon vertices: center + ring
-  const vertices = [];
-  const indices = [];
-  const colors = [];
+  // Build a 2D shape (in XY) from the radar polygon
+  const shape = new THREE.Shape();
+  let firstX, firstY;
+  for (let t = 0; t <= NUM_TOPICS; t++) {
+    const ti = t % NUM_TOPICS;
+    const val = topicVisible[ti] ? ep.coverage[ti] : 0;
+    const a = topicAngle(ti);
+    const r = val * RADIUS_SCALE;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (t === 0) {
+      shape.moveTo(x, y);
+      firstX = x; firstY = y;
+    } else {
+      shape.lineTo(x, y);
+    }
+  }
 
-  // Center vertex
-  vertices.push(0, 0, z);
+  // Filled polygon
+  const geo = new THREE.ShapeGeometry(shape);
   const baseColor = new THREE.Color(0x7DF9AA);
-  const dimColor = new THREE.Color(0x1a3a2a);
-  const c = dimColor.clone().lerp(baseColor, 0.3 + timeFrac * 0.7);
-  colors.push(c.r, c.g, c.b);
-
-  // Ring vertices
-  for (let t = 0; t < NUM_TOPICS; t++) {
-    const val = topicVisible[t] ? ep.coverage[t] : 0;
-    const pt = radarPoint(t, val, z);
-    vertices.push(pt.x, pt.y, pt.z);
-
-    const tc = new THREE.Color(TOPIC_COLORS[t]);
-    const blended = dimColor.clone().lerp(tc, 0.2 + timeFrac * 0.6);
-    colors.push(blended.r, blended.g, blended.b);
-  }
-
-  // Triangles: center to each pair of adjacent ring vertices
-  for (let t = 0; t < NUM_TOPICS; t++) {
-    const next = (t + 1) % NUM_TOPICS;
-    indices.push(0, t + 1, next + 1);
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
+  const dimColor = new THREE.Color(0x0d1f15);
+  const fillColor = dimColor.clone().lerp(baseColor, 0.1 + timeFrac * 0.2);
 
   const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
+    color: fillColor,
     transparent: true,
-    opacity: 0.15 + timeFrac * 0.35,
+    opacity: 0.06 + timeFrac * 0.18,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
 
   const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.z = z;
   mesh.userData = { episodeIdx: epIdx };
+
   return mesh;
 }
 
 function buildSliceOutline(epIdx) {
   const ep = EPISODES[epIdx];
   const z = -epIdx * Z_SPACING;
-  const timeFrac = epIdx / (NUM_EPISODES - 1);
+  const timeFrac = NUM_EPISODES > 1 ? epIdx / (NUM_EPISODES - 1) : 1;
 
   const pts = [];
   for (let t = 0; t <= NUM_TOPICS; t++) {
     const ti = t % NUM_TOPICS;
     const val = topicVisible[ti] ? ep.coverage[ti] : 0;
-    pts.push(radarPoint(ti, val, z));
-  }
-
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const color = new THREE.Color(0x7DF9AA);
-  const dim = new THREE.Color(0x1a3a2a);
-  const c = dim.clone().lerp(color, 0.3 + timeFrac * 0.7);
-
-  const mat = new THREE.LineBasicMaterial({
-    color: c,
-    transparent: true,
-    opacity: 0.2 + timeFrac * 0.6,
-  });
-
-  return new THREE.Line(geo, mat);
-}
-
-// ── BUILD RIBBONS ─────────────────────────────────────────────────────────────
-
-function buildRibbon(topicIdx) {
-  if (!topicVisible[topicIdx]) return null;
-
-  const maxEp = scrubberValue + 1;
-  if (maxEp < 2) return null;
-
-  const vertices = [];
-  const colors = [];
-  const indices = [];
-
-  const tc = new THREE.Color(TOPIC_COLORS[topicIdx]);
-  const dimTc = new THREE.Color(0x0a0a0f);
-
-  for (let ep = 0; ep < maxEp; ep++) {
-    const z = -ep * Z_SPACING;
-    const val = EPISODES[ep].coverage[topicIdx];
-    const pt = radarPoint(topicIdx, val, z);
-    const timeFrac = ep / (NUM_EPISODES - 1);
-
-    // Two vertices per episode: one at center, one at radar point
-    vertices.push(0, 0, z);
-    vertices.push(pt.x, pt.y, pt.z);
-
-    const alpha = 0.15 + timeFrac * 0.85;
-    const c = dimTc.clone().lerp(tc, alpha);
-    colors.push(c.r, c.g, c.b);
-    colors.push(c.r, c.g, c.b);
-  }
-
-  // Build quad strip
-  for (let ep = 0; ep < maxEp - 1; ep++) {
-    const i = ep * 2;
-    // Only connect outer edges (indices 1 and 3 of each pair)
-    indices.push(i + 1, i + 3, i + 2 + 1);
-    // Actually, build quads between adjacent episode outer points
-  }
-
-  // Simpler approach: ribbon as line strip along the outer edge
-  const pts = [];
-  for (let ep = 0; ep < maxEp; ep++) {
-    const z = -ep * Z_SPACING;
-    const val = EPISODES[ep].coverage[topicIdx];
-    pts.push(radarPoint(topicIdx, val, z));
+    const a = topicAngle(ti);
+    const r = val * RADIUS_SCALE;
+    pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
   }
 
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
 
-  // Vertex colors for depth
-  const lineColors = [];
-  for (let ep = 0; ep < maxEp; ep++) {
-    const timeFrac = ep / (NUM_EPISODES - 1);
-    const c = dimTc.clone().lerp(tc, 0.2 + timeFrac * 0.8);
-    lineColors.push(c.r, c.g, c.b);
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
+  const brightColor = new THREE.Color(0x7DF9AA);
+  const dimColor = new THREE.Color(0x1a3a2a);
+  const lineColor = dimColor.clone().lerp(brightColor, 0.15 + timeFrac * 0.85);
 
   const mat = new THREE.LineBasicMaterial({
-    vertexColors: true,
+    color: lineColor,
     transparent: true,
-    opacity: 0.7,
-    linewidth: 1,
+    opacity: 0.12 + timeFrac * 0.7,
   });
 
-  return new THREE.Line(geo, mat);
-}
-
-// Build ribbon surfaces (filled quads between adjacent episodes for a topic)
-function buildRibbonSurface(topicIdx) {
-  if (!topicVisible[topicIdx]) return null;
-
-  const maxEp = scrubberValue + 1;
-  if (maxEp < 2) return null;
-
-  const nextTopicIdx = (topicIdx + 1) % NUM_TOPICS;
-  const tc = new THREE.Color(TOPIC_COLORS[topicIdx]);
-  const dimTc = new THREE.Color(0x0a0a0f);
-
-  const vertices = [];
-  const colors = [];
-  const indices = [];
-
-  for (let ep = 0; ep < maxEp; ep++) {
-    const z = -ep * Z_SPACING;
-    const val = EPISODES[ep].coverage[topicIdx];
-    const pt = radarPoint(topicIdx, val, z);
-    const timeFrac = ep / (NUM_EPISODES - 1);
-    const c = dimTc.clone().lerp(tc, 0.1 + timeFrac * 0.5);
-
-    vertices.push(pt.x, pt.y, pt.z);
-    colors.push(c.r, c.g, c.b);
-  }
-
-  // Connect adjacent episode points into a line strip along the outer edge
-  // Then build a thin ribbon by also adding center-offset points
-  // Actually — let's make a proper surface ribbon along each axis
-  const vertices2 = [];
-  const colors2 = [];
-  const indices2 = [];
-
-  for (let ep = 0; ep < maxEp; ep++) {
-    const z = -ep * Z_SPACING;
-    const val = EPISODES[ep].coverage[topicIdx];
-    const timeFrac = ep / (NUM_EPISODES - 1);
-    const c = dimTc.clone().lerp(tc, 0.08 + timeFrac * 0.35);
-
-    const pt = radarPoint(topicIdx, val, z);
-    // Inner point (slightly toward center)
-    const innerR = Math.max(0, val - 0.08) * RADIUS_SCALE;
-    const angle = topicAngle(topicIdx);
-    const inner = new THREE.Vector3(
-      Math.cos(angle) * innerR,
-      Math.sin(angle) * innerR,
-      z
-    );
-
-    vertices2.push(inner.x, inner.y, inner.z); // even index
-    vertices2.push(pt.x, pt.y, pt.z);          // odd index
-    colors2.push(c.r, c.g, c.b);
-    colors2.push(c.r, c.g, c.b);
-  }
-
-  for (let ep = 0; ep < maxEp - 1; ep++) {
-    const i = ep * 2;
-    indices2.push(i, i + 1, i + 2);
-    indices2.push(i + 1, i + 3, i + 2);
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices2, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors2, 3));
-  geo.setIndex(indices2);
-  geo.computeVertexNormals();
-
-  const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.4,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-
-  return new THREE.Mesh(geo, mat);
+  const line = new THREE.Line(geo, mat);
+  line.position.z = z;
+  return line;
 }
 
 // ── REBUILD SCENE ─────────────────────────────────────────────────────────────
 
 function rebuildScene() {
-  // Clear
+  // Clear all slices
   while (sliceGroup.children.length) sliceGroup.remove(sliceGroup.children[0]);
-  while (ribbonGroup.children.length) ribbonGroup.remove(ribbonGroup.children[0]);
   sliceMeshes.length = 0;
-  ribbonMeshes.length = 0;
 
   const maxEp = scrubberValue + 1;
 
   if (viewMode === 'latest') {
-    // Only show the latest slice
-    const idx = scrubberValue;
-    const slice = buildSlice(idx);
-    // Override z to 0 for flat view
-    slice.position.z = idx * Z_SPACING;
-    sliceGroup.add(slice);
-    sliceMeshes.push(slice);
+    // Single flat radar at z=0
+    const mesh = buildSliceShape(scrubberValue);
+    mesh.position.z = 0;
+    sliceGroup.add(mesh);
+    sliceMeshes.push(mesh);
 
-    const outline = buildSliceOutline(idx);
-    outline.position.z = idx * Z_SPACING;
+    const outline = buildSliceOutline(scrubberValue);
+    outline.position.z = 0;
     sliceGroup.add(outline);
   } else {
-    // Cumulative: show all slices up to scrubber
+    // Stack all slices — each is its own independent flat polygon
     for (let ep = 0; ep < maxEp; ep++) {
-      const slice = buildSlice(ep);
-      sliceGroup.add(slice);
-      sliceMeshes.push(slice);
+      const mesh = buildSliceShape(ep);
+      sliceGroup.add(mesh);
+      sliceMeshes.push(mesh);
 
       const outline = buildSliceOutline(ep);
       sliceGroup.add(outline);
-    }
-
-    // Ribbons per topic
-    for (let t = 0; t < NUM_TOPICS; t++) {
-      const ribbon = buildRibbon(t);
-      if (ribbon) {
-        ribbonGroup.add(ribbon);
-        ribbonMeshes.push(ribbon);
-      }
-      const surface = buildRibbonSurface(t);
-      if (surface) {
-        ribbonGroup.add(surface);
-      }
     }
   }
 
@@ -710,12 +498,12 @@ function onMouseMove(e) {
     const epIdx = mesh.userData.episodeIdx;
     const ep = EPISODES[epIdx];
 
-    // Determine which topic by angle of hit point relative to center
-    const point = hit.point;
-    const angle = Math.atan2(point.y, point.x);
-    let normalizedAngle = angle + Math.PI / 2;
-    if (normalizedAngle < 0) normalizedAngle += Math.PI * 2;
-    const topicIdx = Math.floor((normalizedAngle / (Math.PI * 2)) * NUM_TOPICS) % NUM_TOPICS;
+    // Determine topic from angle of hit point in local XY
+    const local = mesh.worldToLocal(hit.point.clone());
+    const angle = Math.atan2(local.y, local.x);
+    let norm = angle + Math.PI / 2;
+    if (norm < 0) norm += Math.PI * 2;
+    const topicIdx = Math.floor((norm / (Math.PI * 2)) * NUM_TOPICS) % NUM_TOPICS;
 
     const topic = TOPICS[topicIdx];
     const cov = ep.coverage[topicIdx];
@@ -724,8 +512,8 @@ function onMouseMove(e) {
 
     tooltip.innerHTML = `
       <div class="tt-topic">${topic.name}</div>
-      <div>Episode ${ep.episode} <span class="tt-dim">· ${ep.date}</span></div>
-      <div>${covPct}% coverage <span class="tt-dim">· ~${mins}/${topic.alloc} min</span></div>
+      <div>Episode ${ep.episode} <span class="tt-dim">\u00b7 ${ep.date}</span></div>
+      <div>${covPct}% coverage <span class="tt-dim">\u00b7 ~${mins}/${topic.alloc} min</span></div>
     `;
     tooltip.style.display = 'block';
     tooltip.style.left = (e.clientX + 14) + 'px';
@@ -756,12 +544,10 @@ function onScrub(val) {
 function togglePlay() {
   isPlaying = !isPlaying;
   document.getElementById('play-btn').innerHTML = isPlaying ? '&#9646;&#9646;' : '&#9654;';
-
   if (isPlaying) {
     scrubberValue = 0;
     document.getElementById('scrubber').value = 0;
     onScrub(0);
-
     playInterval = setInterval(() => {
       scrubberValue++;
       if (scrubberValue >= NUM_EPISODES) {
@@ -779,7 +565,6 @@ function togglePlay() {
   }
 }
 
-// Sidebar topic toggles
 function buildSidebar() {
   const sidebar = document.getElementById('sidebar');
   sidebar.innerHTML = '';
@@ -787,9 +572,9 @@ function buildSidebar() {
     const div = document.createElement('div');
     div.className = 'topic-toggle' + (topicVisible[t] ? '' : ' off');
     div.innerHTML = `
-      <span class="dot" style="background: #${TOPIC_COLORS[t].toString(16).padStart(6, '0')}"></span>
+      <span class="dot" style="background: #${TOPIC_COLORS[t % TOPIC_COLORS.length].toString(16).padStart(6, '0')}"></span>
       <span class="label">${TOPICS[t].name}</span>
-      <span class="pct" id="pct-${t}">—</span>
+      <span class="pct" id="pct-${t}">\u2014</span>
     `;
     div.onclick = () => {
       topicVisible[t] = !topicVisible[t];
@@ -804,14 +589,9 @@ function updateSidebarPcts() {
   const ep = EPISODES[scrubberValue];
   for (let t = 0; t < NUM_TOPICS; t++) {
     const el = document.getElementById(`pct-${t}`);
-    if (el) {
-      const pct = Math.round(ep.coverage[t] * 100);
-      el.textContent = pct + '%';
-    }
+    if (el) el.textContent = Math.round(ep.coverage[t] * 100) + '%';
   }
 }
-
-buildSidebar();
 
 // ── RESIZE ────────────────────────────────────────────────────────────────────
 
@@ -833,6 +613,11 @@ function animate() {
 
 async function init() {
   await loadRealData();
+  // Recalculate camera target based on actual episode count
+  controls.target.set(0, 0, -((NUM_EPISODES - 1) * Z_SPACING) / 2);
+  camera.position.set(0, 8, 30);
+  controls.update();
+
   buildSidebar();
   buildAxes();
   rebuildScene();
