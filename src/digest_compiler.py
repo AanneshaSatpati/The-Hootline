@@ -1,9 +1,11 @@
 """Compile parsed articles into a single source document for NotebookLM."""
 
+import json
 import logging
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import requests
 
@@ -63,6 +65,39 @@ Do NOT use bullet points or list format. Do NOT include host labels \
 like "[Host 1]:". Write as flowing prose that two hosts can naturally \
 discuss. Stay within the word budget."""
 
+PROMPT_CONFIG_FILENAME = "prompt_config.json"
+
+
+def _prompt_config_path(show: ShowConfig | None = None) -> Path:
+    """Return path to the prompt config JSON file for a show."""
+    if show:
+        return show.output_dir / PROMPT_CONFIG_FILENAME
+    return Path("output") / PROMPT_CONFIG_FILENAME
+
+
+def get_prompt_config(show: ShowConfig | None = None) -> dict:
+    """Load prompt config from disk, returning defaults if not found."""
+    defaults = {
+        "system_prompt": SUMMARIZATION_SYSTEM_PROMPT_TEMPLATE,
+        "podcast_preamble": PODCAST_PREAMBLE,
+    }
+    path = _prompt_config_path(show)
+    if path.exists():
+        try:
+            saved = json.loads(path.read_text())
+            # Merge with defaults so new keys are always present
+            return {**defaults, **saved}
+        except (json.JSONDecodeError, OSError):
+            pass
+    return defaults
+
+
+def save_prompt_config(config: dict, show: ShowConfig | None = None) -> None:
+    """Save prompt config to disk."""
+    path = _prompt_config_path(show)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2))
+
 
 def _fetch_seattle_weather() -> str:
     """Fetch current Seattle weather from wttr.in. Returns a brief description or empty string."""
@@ -103,6 +138,7 @@ def _summarize_all_segments(
     segment_word_budgets: dict[str, int],
     segment_order: list[str],
     podcast_name: str = "The Hootline",
+    show: ShowConfig | None = None,
 ) -> tuple[dict[str, str], str] | None:
     """Summarize all segments and generate RSS summary in a single API call.
 
@@ -111,7 +147,8 @@ def _summarize_all_segments(
     from src.llm_client import call_summarize
     from src.exceptions import LLMAPIError
 
-    system_prompt = SUMMARIZATION_SYSTEM_PROMPT_TEMPLATE.format(podcast_name=podcast_name)
+    prompt_config = get_prompt_config(show)
+    system_prompt = prompt_config["system_prompt"].format(podcast_name=podcast_name)
 
     # Build the prompt with all segments
     parts = []
@@ -266,7 +303,7 @@ def _raw_fallback_segment(articles: list[Article], word_budget: int) -> str:
 
 def _compile_text(
     digest: DailyDigest, date_str: str, podcast_name: str = "The Hootline",
-    show_format: ShowFormat | None = None,
+    show_format: ShowFormat | None = None, show_config: ShowConfig | None = None,
 ) -> tuple[str, dict[str, int], dict[str, list[str]], str]:
     """Compile articles into a segment-structured markdown document with AI summaries.
 
@@ -313,7 +350,8 @@ def _compile_text(
 
     # Single API call for all segment summaries + RSS summary
     ai_result = _summarize_all_segments(
-        grouped, segment_word_budgets, format_segment_order, podcast_name=podcast_name,
+        grouped, segment_word_budgets, format_segment_order,
+        podcast_name=podcast_name, show=show_config,
     )
     if ai_result:
         ai_segments, rss_summary = ai_result
@@ -334,7 +372,8 @@ def _compile_text(
                                      intro_dur=int(show_format.intro_minutes) if show_format else 1)
         outro = OUTRO_SECTION.format(podcast_name=podcast_name,
                                      outro_dur=int(show_format.outro_minutes) if show_format else 1)
-    preamble = PODCAST_PREAMBLE.format(podcast_name=podcast_name, date=date_str)
+    prompt_config = get_prompt_config(show_config)
+    preamble = prompt_config["podcast_preamble"].format(podcast_name=podcast_name, date=date_str)
 
     sections = [f"# {podcast_name} — Daily Briefing — {date_str}\n"]
     sections.append(preamble)
@@ -405,7 +444,8 @@ def compile(digest: DailyDigest, show: ShowConfig | None = None) -> CompiledDige
 
     try:
         text, segment_counts, segment_sources, rss_summary = _compile_text(
-            digest, date_display, podcast_name=podcast_name, show_format=show_format,
+            digest, date_display, podcast_name=podcast_name,
+            show_format=show_format, show_config=show,
         )
         topics_summary = _build_topics_summary(digest, segment_counts, show_format=show_format)
         total_words = len(text.split())

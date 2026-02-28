@@ -344,6 +344,31 @@ async def show_dashboard(show_id: str):
 
 # --- API endpoints (show_id query parameter) ---
 
+@app.get("/api/prompt-config")
+async def api_get_prompt_config(show_id: str = Query(default="")):
+    """Get the current prompt configuration."""
+    from src.digest_compiler import get_prompt_config
+    state = _resolve_show(show_id)
+    config = get_prompt_config(state.show)
+    return JSONResponse(config)
+
+
+@app.post("/api/prompt-config")
+async def api_save_prompt_config(request: Request, show_id: str = Query(default="")):
+    """Save updated prompt configuration."""
+    from src.digest_compiler import save_prompt_config
+    state = _resolve_show(show_id)
+    body = await request.json()
+    config = {
+        "system_prompt": body.get("system_prompt", "").strip(),
+        "podcast_preamble": body.get("podcast_preamble", "").strip(),
+    }
+    if not config["system_prompt"] or not config["podcast_preamble"]:
+        return JSONResponse({"error": "Both prompts are required."}, status_code=400)
+    save_prompt_config(config, state.show)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/digests")
 async def api_digests(show_id: str = Query(default="")):
     """List all digests."""
@@ -1541,6 +1566,16 @@ DASHBOARD_HTML = """\
   .h-badge.yes { background: rgba(74,222,128,0.15); color: var(--green); }
   .h-badge.no { background: rgba(248,113,113,0.08); color: var(--text-dim); }
 
+  /* Settings */
+  .settings-wrap { max-width: 800px; margin: 0 auto; padding: 24px; }
+  .settings-desc { font-size: 11px; color: var(--text-dim); margin: 6px 0 10px; line-height: 1.5; }
+  .prompt-textarea {
+    width: 100%; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; line-height: 1.6; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px; resize: vertical;
+  }
+  .prompt-textarea:focus { outline: none; border-color: var(--accent); }
+
   /* Empty state */
   .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; color: var(--text-dim); text-align: center; padding: 40px; }
   .empty .owl { font-size: 56px; margin-bottom: 20px; opacity: 0.4; }
@@ -1575,6 +1610,7 @@ DASHBOARD_HTML = """\
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('latest')">Latest</button>
   <button class="tab-btn" onclick="switchTab('history')">History</button>
+  <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
 </div>
 
 <div id="tab-latest" class="tab-content active">
@@ -1592,6 +1628,27 @@ DASHBOARD_HTML = """\
       <div class="empty"><p>Loading history...</p></div>
     </div>
     <div class="latest-right" id="hist-radar"></div>
+  </div>
+</div>
+
+<div id="tab-settings" class="tab-content">
+  <div class="settings-wrap">
+    <div id="show-format-slot"></div>
+    <div class="card">
+      <div class="card-label">Digest Generation Prompt</div>
+      <p class="settings-desc">System prompt sent to Gemini when generating each topic segment of the digest.</p>
+      <textarea id="prompt-system" class="prompt-textarea" rows="12" spellcheck="false"></textarea>
+    </div>
+    <div class="card">
+      <div class="card-label">Podcast Preamble</div>
+      <p class="settings-desc">Production instructions included at the top of the final compiled digest (before all segments).</p>
+      <textarea id="prompt-preamble" class="prompt-textarea" rows="10" spellcheck="false"></textarea>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="up-btn" id="save-prompts-btn" onclick="savePromptConfig()">Save</button>
+      <button class="btn" onclick="loadPromptConfig()">Reset</button>
+      <span id="prompt-save-status" class="upload-status"></span>
+    </div>
   </div>
 </div>
 
@@ -1628,6 +1685,7 @@ function switchTab(tab) {
   event.target.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'history') loadHistory();
+  if (tab === 'settings') { loadPromptConfig(); renderShowFormat(); }
 }
 
 function copyDigestUrl(url, btn) {
@@ -1748,7 +1806,7 @@ async function loadLatest() {
     _prepActive = true;
     renderPreparation(data.preparation);
     updateGenBtn(null, true);
-    loadRadar(radarMode, 'right-col');
+    renderRightCol(data.preparation.digest);
     return;
   }
 
@@ -1770,7 +1828,6 @@ async function loadLatest() {
     h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
     h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
     h += '<a class="dl-btn" href="' + d.download_url.replace('.html', '.md') + '" download title="Download .md">&#x2B07;</a></div></div></div>';
-    h += topicBreakdown(d);
   }
 
   if (data.episode) {
@@ -1785,10 +1842,9 @@ async function loadLatest() {
     h += '<audio controls preload="metadata" src="' + ep.audio_url + '"></audio></div>';
   }
 
-  h += segmentCard();
   left.innerHTML = h;
   updateGenBtn(data.digest, false);
-  loadRadar(radarMode, 'right-col');
+  renderRightCol(data.digest);
 }
 
 function renderPreparation(prep) {
@@ -1811,7 +1867,7 @@ function renderPreparation(prep) {
     h += '<p style="margin-top:8px;font-size:12px;color:var(--text-dim);">Click <strong>Cancel</strong> to return, or try again.</p>';
     h += '</div>';
     left.innerHTML = h;
-    loadRadar(radarMode, 'right-col');
+    renderRightCol(null);
     return;
   }
 
@@ -1823,7 +1879,6 @@ function renderPreparation(prep) {
     h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
     h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
     h += '<a class="dl-btn" href="' + d.download_url + '" download title="Download .md">&#x2B07;</a></div></div></div>';
-    h += topicBreakdown(d);
   }
 
   if (prep.state === 'digest_ready') {
@@ -1852,8 +1907,17 @@ function renderPreparation(prep) {
     h += '</div></div>';
   }
 
-  h += segmentCard();
   left.innerHTML = h;
+}
+
+// ===== RIGHT COLUMN: Topic Breakdown + Radar =====
+function renderRightCol(digest) {
+  const box = document.getElementById('right-col');
+  // Render topic breakdown above radar
+  box.innerHTML = '<div id="topic-breakdown-slot"></div><div id="radar-slot"></div>';
+  const tbSlot = document.getElementById('topic-breakdown-slot');
+  tbSlot.innerHTML = topicBreakdown(digest);
+  loadRadar(radarMode, 'radar-slot');
 }
 
 // ===== RADAR =====
@@ -2181,6 +2245,53 @@ async function updateHealth() {
       info.textContent = 'Next: ' + next.toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
     }
   } catch(e) {}
+}
+
+// ===== SETTINGS TAB =====
+function renderShowFormat() {
+  const slot = document.getElementById('show-format-slot');
+  if (slot) slot.innerHTML = segmentCard();
+}
+
+async function loadPromptConfig() {
+  try {
+    const res = await fetch(apiUrl('/api/prompt-config'));
+    const data = await res.json();
+    document.getElementById('prompt-system').value = data.system_prompt || '';
+    document.getElementById('prompt-preamble').value = data.podcast_preamble || '';
+    const st = document.getElementById('prompt-save-status');
+    st.className = 'upload-status'; st.textContent = '';
+  } catch(e) {
+    console.error('Failed to load prompt config', e);
+  }
+}
+
+async function savePromptConfig() {
+  const btn = document.getElementById('save-prompts-btn');
+  const st = document.getElementById('prompt-save-status');
+  const body = {
+    system_prompt: document.getElementById('prompt-system').value,
+    podcast_preamble: document.getElementById('prompt-preamble').value,
+  };
+  btn.disabled = true; btn.textContent = 'Saving...';
+  st.className = 'upload-status'; st.textContent = '';
+  try {
+    const res = await fetch(apiUrl('/api/prompt-config'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      st.className = 'upload-status success'; st.textContent = 'Saved!';
+      setTimeout(() => { st.textContent = ''; }, 3000);
+    } else {
+      st.className = 'upload-status error'; st.textContent = data.error || 'Save failed.';
+    }
+  } catch(e) {
+    st.className = 'upload-status error'; st.textContent = 'Network error.';
+  }
+  btn.disabled = false; btn.textContent = 'Save';
 }
 
 loadShowFormat().then(() => {
