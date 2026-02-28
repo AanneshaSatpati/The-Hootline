@@ -6,9 +6,7 @@
 <title>Noctua — Topic Coverage 3D</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
-
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     background: #0a0a0f;
     color: #c8c8d0;
@@ -17,170 +15,97 @@
     height: 100vh;
     width: 100vw;
   }
-
   #canvas-container {
     position: absolute;
     top: 0; left: 0;
     width: 100%; height: 100%;
     z-index: 1;
   }
-
   #header {
     position: absolute;
     top: 20px; left: 24px;
     z-index: 10;
     pointer-events: none;
   }
-  #header h1 {
-    font-size: 14px;
-    font-weight: 700;
-    color: #7DF9AA;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-  }
-  #header p {
-    font-size: 10px;
-    color: #555;
-    margin-top: 4px;
-    letter-spacing: 1px;
-  }
-
+  #header h1 { font-size: 14px; font-weight: 700; color: #7DF9AA; letter-spacing: 2px; text-transform: uppercase; }
+  #header p { font-size: 10px; color: #555; margin-top: 4px; letter-spacing: 1px; }
   #view-toggle {
-    position: absolute;
-    top: 20px; right: 24px;
-    z-index: 10;
-    display: flex;
-    gap: 0;
+    position: absolute; top: 20px; right: 24px; z-index: 10; display: flex; gap: 0;
   }
   .toggle-btn {
-    background: transparent;
-    border: 1px solid #333;
-    color: #666;
-    font-family: 'Space Mono', monospace;
-    font-size: 11px;
-    padding: 6px 14px;
-    cursor: pointer;
-    transition: all 0.2s;
-    letter-spacing: 1px;
+    background: transparent; border: 1px solid #333; color: #666;
+    font-family: 'Space Mono', monospace; font-size: 11px; padding: 6px 14px;
+    cursor: pointer; transition: all 0.2s; letter-spacing: 1px;
   }
   .toggle-btn:first-child { border-radius: 3px 0 0 3px; }
   .toggle-btn:last-child { border-radius: 0 3px 3px 0; }
-  .toggle-btn.active {
-    background: #7DF9AA15;
-    border-color: #7DF9AA;
-    color: #7DF9AA;
-  }
-  .toggle-btn:hover:not(.active) {
-    border-color: #555;
-    color: #999;
-  }
-
+  .toggle-btn.active { background: #7DF9AA15; border-color: #7DF9AA; color: #7DF9AA; }
+  .toggle-btn:hover:not(.active) { border-color: #555; color: #999; }
   #sidebar {
-    position: absolute;
-    top: 80px; right: 24px;
-    z-index: 10;
-    width: 180px;
+    position: absolute; top: 80px; right: 24px; z-index: 10; width: 180px;
   }
   .topic-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-    cursor: pointer;
-    user-select: none;
-    transition: opacity 0.2s;
+    display: flex; align-items: center; gap: 8px; padding: 4px 0;
+    cursor: pointer; user-select: none; transition: opacity 0.2s;
   }
   .topic-toggle:hover { opacity: 1 !important; }
-  .topic-toggle .dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    transition: opacity 0.2s;
-  }
+  .topic-toggle .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .topic-toggle.off .dot { opacity: 0.2; }
-  .topic-toggle .label {
-    font-size: 10px;
-    color: #777;
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .topic-toggle .label { font-size: 10px; color: #777; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .topic-toggle.off .label { color: #444; text-decoration: line-through; }
-  .topic-toggle .pct {
-    margin-left: auto;
-    font-size: 9px;
-    color: #555;
-    font-variant-numeric: tabular-nums;
-  }
-
+  .topic-toggle .pct { margin-left: auto; font-size: 9px; color: #555; font-variant-numeric: tabular-nums; }
   #timeline {
-    position: absolute;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: #12121a;
-    border: 1px solid #222;
-    border-radius: 4px;
-    padding: 8px 16px;
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; align-items: center; gap: 12px;
+    background: #12121a; border: 1px solid #222; border-radius: 4px; padding: 8px 16px;
   }
-  #timeline label {
-    font-size: 10px;
-    color: #555;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-  #timeline input[type="range"] {
-    width: 300px;
-    accent-color: #7DF9AA;
-    cursor: pointer;
-  }
-  #episode-label {
-    font-size: 11px;
-    color: #7DF9AA;
-    min-width: 60px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
+  #timeline label { font-size: 10px; color: #555; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+  #timeline input[type="range"] { width: 300px; accent-color: #7DF9AA; cursor: pointer; }
+  #episode-label { font-size: 11px; color: #7DF9AA; min-width: 60px; text-align: right; font-variant-numeric: tabular-nums; }
   #play-btn {
-    background: none;
-    border: 1px solid #333;
-    color: #7DF9AA;
-    font-family: 'Space Mono', monospace;
-    font-size: 12px;
-    padding: 3px 10px;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: all 0.2s;
+    background: none; border: 1px solid #333; color: #7DF9AA;
+    font-family: 'Space Mono', monospace; font-size: 12px; padding: 3px 10px;
+    border-radius: 3px; cursor: pointer;
   }
   #play-btn:hover { border-color: #7DF9AA; }
-
   #tooltip {
-    position: absolute;
-    z-index: 20;
-    pointer-events: none;
-    background: #16161e;
-    border: 1px solid #7DF9AA44;
-    border-radius: 4px;
-    padding: 8px 12px;
-    font-size: 10px;
-    line-height: 1.6;
-    color: #c8c8d0;
-    display: none;
-    max-width: 200px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    position: absolute; z-index: 20; pointer-events: none;
+    background: #16161e; border: 1px solid #7DF9AA44; border-radius: 4px;
+    padding: 8px 12px; font-size: 10px; line-height: 1.6; color: #c8c8d0;
+    display: none; max-width: 200px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   }
   #tooltip .tt-topic { color: #7DF9AA; font-weight: 700; }
   #tooltip .tt-dim { color: #666; }
+
+  /* 2D overlay */
+  #overlay-2d {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 15; display: none; background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(4px);
+  }
+  #overlay-2d canvas {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  }
+  #back-btn {
+    position: absolute; top: 20px; left: 24px; z-index: 16;
+    background: none; border: 1px solid #333; color: #7DF9AA;
+    font-family: 'Space Mono', monospace; font-size: 11px; padding: 6px 14px;
+    border-radius: 3px; cursor: pointer; display: none; letter-spacing: 1px;
+  }
+  #back-btn:hover { border-color: #7DF9AA; background: #7DF9AA10; }
+  #slice-title {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 16; font-size: 13px; color: #7DF9AA; letter-spacing: 1px;
+    font-weight: 700; display: none; text-transform: uppercase;
+  }
+  #click-hint {
+    position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%);
+    z-index: 10; font-size: 9px; color: #444; letter-spacing: 1px;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
-
 <div id="canvas-container"></div>
 
 <div id="header">
@@ -203,6 +128,13 @@
 </div>
 
 <div id="tooltip"></div>
+<div id="click-hint">click spoke for topic trend · click ring for episode radar</div>
+
+<div id="overlay-2d">
+  <canvas id="chart-2d"></canvas>
+</div>
+<button id="back-btn" onclick="exitSliceView()">&#8592; Back</button>
+<div id="slice-title"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -210,48 +142,44 @@
 // ── DATA ──────────────────────────────────────────────────────────────────────
 
 let TOPICS = [
-  { name: "Latest in Tech",   alloc: 5 },
-  { name: "Product Mgmt",     alloc: 4 },
-  { name: "World Politics",   alloc: 4 },
-  { name: "US Politics",      alloc: 3 },
-  { name: "Indian Politics",  alloc: 3 },
-  { name: "Entertainment",    alloc: 3 },
-  { name: "CrossFit",         alloc: 2 },
-  { name: "Formula 1",        alloc: 2 },
-  { name: "Arsenal",          alloc: 1 },
-  { name: "Indian Cricket",   alloc: 1 },
-  { name: "Badminton",        alloc: 1 },
-  { name: "Sports",           alloc: 1 },
-  { name: "Seattle",          alloc: 1 },
-  { name: "Misc",             alloc: 1 },
+  { name: "Latest in Tech", alloc: 5 }, { name: "Product Mgmt", alloc: 4 },
+  { name: "World Politics", alloc: 4 }, { name: "US Politics", alloc: 3 },
+  { name: "Indian Politics", alloc: 3 }, { name: "Entertainment", alloc: 3 },
+  { name: "CrossFit", alloc: 2 }, { name: "Formula 1", alloc: 2 },
+  { name: "Arsenal", alloc: 1 }, { name: "Indian Cricket", alloc: 1 },
+  { name: "Badminton", alloc: 1 }, { name: "Sports", alloc: 1 },
+  { name: "Seattle", alloc: 1 }, { name: "Misc", alloc: 1 },
 ];
-
 let NUM_TOPICS = TOPICS.length;
 let NUM_EPISODES = 30;
 
-const TOPIC_COLORS = [
+const TOPIC_COLORS_HEX = [
   0x7DF9AA, 0x5BC4F7, 0xF7A35B, 0xF75B7D, 0xD95BF7,
   0xF7E85B, 0x5BF7D9, 0xF75B5B, 0x5B7DF7, 0xA3F75B,
   0xF7C45B, 0x5BF7A3, 0xC45BF7, 0x8899AA,
 ];
 
+function topicColorCSS(i) {
+  return '#' + TOPIC_COLORS_HEX[i % TOPIC_COLORS_HEX.length].toString(16).padStart(6, '0');
+}
+
 function generateMockData() {
   const episodes = [];
-  const baselines = [0.7, 0.3, 0.8, 0.65, 0.5, 0.75, 0.6, 0.55, 0.4, 0.35, 0.25, 0.6, 0.45, 0.7];
-  const trends = [0.005, -0.008, 0.003, 0.002, 0.01, -0.003, 0.008, 0.004, -0.005, 0.012, -0.006, 0.001, 0.003, -0.002];
-  const peakEp = [null, null, null, null, 20, null, 15, 18, null, 22, null, null, 12, null];
+  const baselines = [0.7,0.3,0.8,0.65,0.5,0.75,0.6,0.55,0.4,0.35,0.25,0.6,0.45,0.7];
+  const trends = [0.005,-0.008,0.003,0.002,0.01,-0.003,0.008,0.004,-0.005,0.012,-0.006,0.001,0.003,-0.002];
+  const peakEp = [null,null,null,null,20,null,15,18,null,22,null,null,12,null];
   for (let ep = 0; ep < 30; ep++) {
     const coverage = [];
     for (let t = 0; t < TOPICS.length; t++) {
-      let base = (baselines[t] || 0.5) + (trends[t] || 0) * ep;
-      if (peakEp[t] !== null) base += 0.3 * Math.exp(-(ep - peakEp[t]) ** 2 / 18);
-      let val = base + (Math.random() - 0.5) * 0.25;
-      if (ep % 7 >= 5 && t < 6) val *= 0.7;
+      let base = (baselines[t]||0.5) + (trends[t]||0)*ep;
+      if (peakEp[t] !== null) base += 0.3*Math.exp(-(ep-peakEp[t])**2/18);
+      let val = base + (Math.random()-0.5)*0.25;
+      if (ep%7>=5 && t<6) val *= 0.7;
       val = Math.max(0, Math.min(1.3, val));
-      if (Math.random() < 0.08) val = 0;
-      coverage.push(Math.round(val * 100) / 100);
+      if (Math.random()<0.08) val = 0;
+      coverage.push(Math.round(val*100)/100);
     }
-    episodes.push({ episode: ep + 1, date: `2026-02-${String(ep + 1).padStart(2, '0')}`, coverage });
+    episodes.push({ episode: ep+1, date: `2026-02-${String(ep+1).padStart(2,'0')}`, coverage });
   }
   return episodes;
 }
@@ -264,21 +192,17 @@ async function loadRealData() {
     if (!res.ok) return false;
     const data = await res.json();
     if (!data.episodes || data.episodes.length < 2) return false;
-    TOPICS = data.topics;
-    NUM_TOPICS = TOPICS.length;
-    EPISODES = data.episodes.map((ep, i) => ({ episode: i + 1, date: ep.date, coverage: ep.coverage }));
+    TOPICS = data.topics; NUM_TOPICS = TOPICS.length;
+    EPISODES = data.episodes.map((ep,i) => ({ episode:i+1, date:ep.date, coverage:ep.coverage }));
     NUM_EPISODES = EPISODES.length;
     topicVisible = new Array(NUM_TOPICS).fill(true);
-    document.getElementById('scrubber').max = NUM_EPISODES - 1;
-    document.getElementById('scrubber').value = NUM_EPISODES - 1;
-    scrubberValue = NUM_EPISODES - 1;
+    document.getElementById('scrubber').max = NUM_EPISODES-1;
+    document.getElementById('scrubber').value = NUM_EPISODES-1;
+    scrubberValue = NUM_EPISODES-1;
     document.getElementById('episode-label').textContent = `Ep ${NUM_EPISODES}`;
     document.querySelector('#header p').textContent = `3D radar \u00b7 ${NUM_EPISODES} episodes`;
     return true;
-  } catch (e) {
-    console.warn('API unavailable, using mock data:', e);
-    return false;
-  }
+  } catch(e) { return false; }
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -288,6 +212,20 @@ let scrubberValue = NUM_EPISODES - 1;
 let topicVisible = new Array(NUM_TOPICS).fill(true);
 let isPlaying = false;
 let playInterval = null;
+let sliceMode = null; // null | 'topic' | 'episode'
+let sliceTarget = -1; // topic index or episode index
+
+// Camera saved state for returning from slice view
+let savedCamPos = null;
+let savedCamTarget = null;
+
+// Tween state
+let tweenActive = false;
+let tweenStart = 0;
+let tweenDuration = 800;
+let tweenFrom = { pos: null, target: null };
+let tweenTo = { pos: null, target: null };
+let tweenCallback = null;
 
 // ── THREE.JS SETUP ────────────────────────────────────────────────────────────
 
@@ -296,7 +234,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0f);
 scene.fog = new THREE.FogExp2(0x0a0a0f, 0.003);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 2000);
 camera.position.set(0, 8, 30);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -307,187 +245,520 @@ container.appendChild(renderer.domElement);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.target.set(0, 0, -((NUM_EPISODES - 1) * 15) / 2);
+controls.target.set(0, 0, -((NUM_EPISODES-1)*15)/2);
 controls.minDistance = 5;
 controls.maxDistance = 800;
 controls.update();
 
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambient);
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 
 const Z_SPACING = 15;
 const RADIUS_SCALE = 8;
 
-function topicAngle(i) {
-  return (i / NUM_TOPICS) * Math.PI * 2 - Math.PI / 2;
-}
+function topicAngle(i) { return (i/NUM_TOPICS)*Math.PI*2 - Math.PI/2; }
 
 // ── GROUPS ────────────────────────────────────────────────────────────────────
 
 const sliceGroup = new THREE.Group();
 const axisGroup = new THREE.Group();
+const highlightGroup = new THREE.Group();
 scene.add(sliceGroup);
 scene.add(axisGroup);
+scene.add(highlightGroup);
 
-const sliceMeshes = []; // for raycasting
+const sliceMeshes = [];
+const spokeMeshes = []; // for click detection on spokes
 
 // ── AXIS SPOKES & GUIDE RINGS ─────────────────────────────────────────────────
 
 function buildAxes() {
   while (axisGroup.children.length) axisGroup.remove(axisGroup.children[0]);
+  spokeMeshes.length = 0;
 
-  // Spokes at z=0 (front reference plane)
-  const spokeMat = new THREE.LineBasicMaterial({ color: 0x222233, transparent: true, opacity: 0.4 });
   for (let t = 0; t < NUM_TOPICS; t++) {
     const a = topicAngle(t);
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(Math.cos(a) * RADIUS_SCALE * 1.35, Math.sin(a) * RADIUS_SCALE * 1.35, 0),
+    const endX = Math.cos(a)*RADIUS_SCALE*1.35;
+    const endY = Math.sin(a)*RADIUS_SCALE*1.35;
+
+    // Visible thin line
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,0,0), new THREE.Vector3(endX, endY, 0),
     ]);
-    axisGroup.add(new THREE.Line(geo, spokeMat));
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x222233, transparent: true, opacity: 0.4 });
+    axisGroup.add(new THREE.Line(lineGeo, lineMat));
+
+    // Invisible wider cylinder for click detection
+    const dir = new THREE.Vector3(endX, endY, 0);
+    const len = dir.length();
+    const cylGeo = new THREE.CylinderGeometry(0.4, 0.4, len, 6);
+    cylGeo.rotateZ(Math.PI/2);
+    cylGeo.translate(len/2, 0, 0);
+    const cylMat = new THREE.MeshBasicMaterial({ visible: false });
+    const cyl = new THREE.Mesh(cylGeo, cylMat);
+    cyl.rotation.z = a;
+    cyl.userData = { type: 'spoke', topicIdx: t };
+    axisGroup.add(cyl);
+    spokeMeshes.push(cyl);
   }
 
-  // Guide rings at 50% and 100%
   [0.5, 1.0].forEach(pct => {
     const pts = [];
     for (let i = 0; i <= NUM_TOPICS; i++) {
-      const a = topicAngle(i % NUM_TOPICS);
-      const r = pct * RADIUS_SCALE;
-      pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
+      const a = topicAngle(i%NUM_TOPICS);
+      const r = pct*RADIUS_SCALE;
+      pts.push(new THREE.Vector3(Math.cos(a)*r, Math.sin(a)*r, 0));
     }
     const mat = new THREE.LineBasicMaterial({
-      color: pct === 1.0 ? 0x333344 : 0x1a1a2a,
-      transparent: true,
-      opacity: pct === 1.0 ? 0.5 : 0.25,
+      color: pct===1.0 ? 0x333344 : 0x1a1a2a,
+      transparent: true, opacity: pct===1.0 ? 0.5 : 0.25,
     });
     axisGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
   });
 }
 
-// ── BUILD ONE FLAT RADAR SLICE ────────────────────────────────────────────────
-// Each slice is a flat polygon in the XY plane, translated along Z.
-// Built using THREE.Shape (2D) → ShapeGeometry → positioned at z.
+// ── BUILD FLAT RADAR SLICES ───────────────────────────────────────────────────
 
 function buildSliceShape(epIdx) {
   const ep = EPISODES[epIdx];
-  const z = -epIdx * Z_SPACING;
-  const timeFrac = NUM_EPISODES > 1 ? epIdx / (NUM_EPISODES - 1) : 1;
+  const z = -epIdx*Z_SPACING;
+  const timeFrac = NUM_EPISODES>1 ? epIdx/(NUM_EPISODES-1) : 1;
 
-  // Build a 2D shape (in XY) from the radar polygon
   const shape = new THREE.Shape();
-  let firstX, firstY;
   for (let t = 0; t <= NUM_TOPICS; t++) {
-    const ti = t % NUM_TOPICS;
+    const ti = t%NUM_TOPICS;
     const val = topicVisible[ti] ? ep.coverage[ti] : 0;
     const a = topicAngle(ti);
-    const r = val * RADIUS_SCALE;
-    const x = Math.cos(a) * r;
-    const y = Math.sin(a) * r;
-    if (t === 0) {
-      shape.moveTo(x, y);
-      firstX = x; firstY = y;
-    } else {
-      shape.lineTo(x, y);
-    }
+    const r = val*RADIUS_SCALE;
+    const x = Math.cos(a)*r, y = Math.sin(a)*r;
+    t === 0 ? shape.moveTo(x,y) : shape.lineTo(x,y);
   }
 
-  // Filled polygon
   const geo = new THREE.ShapeGeometry(shape);
-  const baseColor = new THREE.Color(0x7DF9AA);
-  const dimColor = new THREE.Color(0x0d1f15);
-  const fillColor = dimColor.clone().lerp(baseColor, 0.1 + timeFrac * 0.2);
-
+  const dim = new THREE.Color(0x0d1f15);
+  const bright = new THREE.Color(0x7DF9AA);
   const mat = new THREE.MeshBasicMaterial({
-    color: fillColor,
-    transparent: true,
-    opacity: 0.06 + timeFrac * 0.18,
-    side: THREE.DoubleSide,
-    depthWrite: false,
+    color: dim.clone().lerp(bright, 0.1+timeFrac*0.2),
+    transparent: true, opacity: 0.06+timeFrac*0.18,
+    side: THREE.DoubleSide, depthWrite: false,
   });
-
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.z = z;
-  mesh.userData = { episodeIdx: epIdx };
-
+  mesh.userData = { episodeIdx: epIdx, type: 'slice' };
   return mesh;
 }
 
 function buildSliceOutline(epIdx) {
   const ep = EPISODES[epIdx];
-  const z = -epIdx * Z_SPACING;
-  const timeFrac = NUM_EPISODES > 1 ? epIdx / (NUM_EPISODES - 1) : 1;
-
+  const z = -epIdx*Z_SPACING;
+  const timeFrac = NUM_EPISODES>1 ? epIdx/(NUM_EPISODES-1) : 1;
   const pts = [];
   for (let t = 0; t <= NUM_TOPICS; t++) {
-    const ti = t % NUM_TOPICS;
+    const ti = t%NUM_TOPICS;
     const val = topicVisible[ti] ? ep.coverage[ti] : 0;
     const a = topicAngle(ti);
-    const r = val * RADIUS_SCALE;
-    pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
+    const r = val*RADIUS_SCALE;
+    pts.push(new THREE.Vector3(Math.cos(a)*r, Math.sin(a)*r, 0));
   }
-
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
-
-  const brightColor = new THREE.Color(0x7DF9AA);
-  const dimColor = new THREE.Color(0x1a3a2a);
-  const lineColor = dimColor.clone().lerp(brightColor, 0.15 + timeFrac * 0.85);
-
+  const dim = new THREE.Color(0x1a3a2a);
+  const bright = new THREE.Color(0x7DF9AA);
   const mat = new THREE.LineBasicMaterial({
-    color: lineColor,
-    transparent: true,
-    opacity: 0.12 + timeFrac * 0.7,
+    color: dim.clone().lerp(bright, 0.15+timeFrac*0.85),
+    transparent: true, opacity: 0.12+timeFrac*0.7,
   });
-
-  const line = new THREE.Line(geo, mat);
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
   line.position.z = z;
   return line;
+}
+
+// ── HIGHLIGHT HELPERS ─────────────────────────────────────────────────────────
+
+function clearHighlights() {
+  while (highlightGroup.children.length) highlightGroup.remove(highlightGroup.children[0]);
+}
+
+function highlightSpoke(topicIdx) {
+  clearHighlights();
+  const a = topicAngle(topicIdx);
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0,0,0.1),
+    new THREE.Vector3(Math.cos(a)*RADIUS_SCALE*1.5, Math.sin(a)*RADIUS_SCALE*1.5, 0.1),
+  ]);
+  const mat = new THREE.LineBasicMaterial({ color: TOPIC_COLORS_HEX[topicIdx], linewidth: 2 });
+  highlightGroup.add(new THREE.Line(geo, mat));
+}
+
+function highlightRing(epIdx) {
+  clearHighlights();
+  const ep = EPISODES[epIdx];
+  const z = -epIdx*Z_SPACING;
+  const pts = [];
+  for (let t = 0; t <= NUM_TOPICS; t++) {
+    const ti = t%NUM_TOPICS;
+    const val = ep.coverage[ti];
+    const a = topicAngle(ti);
+    const r = val*RADIUS_SCALE;
+    pts.push(new THREE.Vector3(Math.cos(a)*r, Math.sin(a)*r, 0));
+  }
+  const mat = new THREE.LineBasicMaterial({ color: 0x7DF9AA, linewidth: 2, transparent: true, opacity: 1 });
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+  line.position.z = z;
+  highlightGroup.add(line);
 }
 
 // ── REBUILD SCENE ─────────────────────────────────────────────────────────────
 
 function rebuildScene() {
-  // Clear all slices
   while (sliceGroup.children.length) sliceGroup.remove(sliceGroup.children[0]);
   sliceMeshes.length = 0;
-
   const maxEp = scrubberValue + 1;
 
   if (viewMode === 'latest') {
-    // Single flat radar at z=0
     const mesh = buildSliceShape(scrubberValue);
     mesh.position.z = 0;
-    sliceGroup.add(mesh);
-    sliceMeshes.push(mesh);
-
+    sliceGroup.add(mesh); sliceMeshes.push(mesh);
     const outline = buildSliceOutline(scrubberValue);
     outline.position.z = 0;
     sliceGroup.add(outline);
   } else {
-    // Stack all slices — each is its own independent flat polygon
     for (let ep = 0; ep < maxEp; ep++) {
       const mesh = buildSliceShape(ep);
-      sliceGroup.add(mesh);
-      sliceMeshes.push(mesh);
-
-      const outline = buildSliceOutline(ep);
-      sliceGroup.add(outline);
+      sliceGroup.add(mesh); sliceMeshes.push(mesh);
+      sliceGroup.add(buildSliceOutline(ep));
     }
   }
-
   updateSidebarPcts();
 }
 
-// ── RAYCASTING / TOOLTIP ──────────────────────────────────────────────────────
+// ── CAMERA TWEEN ──────────────────────────────────────────────────────────────
+
+function easeInOutCubic(t) { return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+
+function startTween(toPos, toTarget, duration, callback) {
+  tweenFrom.pos = camera.position.clone();
+  tweenFrom.target = controls.target.clone();
+  tweenTo.pos = toPos.clone();
+  tweenTo.target = toTarget.clone();
+  tweenStart = performance.now();
+  tweenDuration = duration || 800;
+  tweenCallback = callback || null;
+  tweenActive = true;
+  controls.enabled = false;
+}
+
+function updateTween() {
+  if (!tweenActive) return;
+  const elapsed = performance.now() - tweenStart;
+  let t = Math.min(elapsed / tweenDuration, 1);
+  t = easeInOutCubic(t);
+
+  camera.position.lerpVectors(tweenFrom.pos, tweenTo.pos, t);
+  controls.target.lerpVectors(tweenFrom.target, tweenTo.target, t);
+  controls.update();
+
+  if (t >= 1) {
+    tweenActive = false;
+    controls.enabled = sliceMode === null;
+    if (tweenCallback) tweenCallback();
+  }
+}
+
+// ── 2D CHART OVERLAY ──────────────────────────────────────────────────────────
+
+const overlay = document.getElementById('overlay-2d');
+const chartCanvas = document.getElementById('chart-2d');
+const backBtn = document.getElementById('back-btn');
+const sliceTitleEl = document.getElementById('slice-title');
+let chartAnimFrame = null;
+let chartAnimStart = 0;
+const CHART_ANIM_DUR = 600;
+
+function showOverlay() {
+  overlay.style.display = 'block';
+  backBtn.style.display = 'block';
+  sliceTitleEl.style.display = 'block';
+  document.getElementById('click-hint').style.display = 'none';
+}
+
+function hideOverlay() {
+  overlay.style.display = 'none';
+  backBtn.style.display = 'none';
+  sliceTitleEl.style.display = 'none';
+  document.getElementById('click-hint').style.display = 'block';
+  if (chartAnimFrame) cancelAnimationFrame(chartAnimFrame);
+}
+
+function drawTopicLineChart(topicIdx, progress) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.min(window.innerWidth - 80, 700);
+  const H = Math.min(window.innerHeight - 120, 400);
+  chartCanvas.width = W * dpr;
+  chartCanvas.height = H * dpr;
+  chartCanvas.style.width = W + 'px';
+  chartCanvas.style.height = H + 'px';
+  const ctx = chartCanvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { top: 30, right: 30, bottom: 40, left: 50 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  const color = topicColorCSS(topicIdx);
+  const topic = TOPICS[topicIdx];
+
+  // Gather data
+  const values = EPISODES.map(ep => ep.coverage[topicIdx]);
+  const maxVal = Math.max(1, ...values) * 1.1;
+
+  // Grid lines
+  ctx.strokeStyle = '#1a1a2a';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + plotH - (i/4)*plotH;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left+plotW, y); ctx.stroke();
+    ctx.fillStyle = '#444';
+    ctx.font = '9px Space Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(i/4*maxVal*100)+'%', pad.left-8, y+3);
+  }
+
+  // 100% reference line
+  const y100 = pad.top + plotH - (1/maxVal)*plotH;
+  ctx.strokeStyle = '#333344';
+  ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, y100); ctx.lineTo(pad.left+plotW, y100); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // X-axis labels
+  ctx.fillStyle = '#444';
+  ctx.textAlign = 'center';
+  ctx.font = '9px Space Mono';
+  const step = Math.max(1, Math.floor(NUM_EPISODES/10));
+  for (let i = 0; i < NUM_EPISODES; i += step) {
+    const x = pad.left + (i/(NUM_EPISODES-1))*plotW;
+    ctx.fillText(EPISODES[i].date.slice(5), x, H-pad.bottom+18);
+  }
+
+  // How many points to draw (animation progress)
+  const drawCount = Math.max(1, Math.floor(progress * NUM_EPISODES));
+
+  // Line
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < drawCount; i++) {
+    const x = pad.left + (i/(NUM_EPISODES-1))*plotW;
+    const y = pad.top + plotH - (values[i]/maxVal)*plotH;
+    i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  // Fill area under line
+  if (drawCount > 1) {
+    const lastX = pad.left + ((drawCount-1)/(NUM_EPISODES-1))*plotW;
+    ctx.lineTo(lastX, pad.top+plotH);
+    ctx.lineTo(pad.left, pad.top+plotH);
+    ctx.closePath();
+    ctx.fillStyle = color.replace('#', 'rgba(') ? `${color}15` : 'rgba(125,249,170,0.08)';
+    // Parse hex to rgba
+    const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
+    ctx.fillStyle = `rgba(${r},${g},${b},0.08)`;
+    ctx.fill();
+  }
+
+  // Dots
+  ctx.fillStyle = color;
+  for (let i = 0; i < drawCount; i++) {
+    const x = pad.left + (i/(NUM_EPISODES-1))*plotW;
+    const y = pad.top + plotH - (values[i]/maxVal)*plotH;
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Allocation label
+  ctx.fillStyle = '#555';
+  ctx.font = '9px Space Mono';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${topic.alloc} min allocated`, pad.left, pad.top - 10);
+}
+
+function drawEpisodeRadarChart(epIdx, progress) {
+  const dpr = window.devicePixelRatio || 1;
+  const size = Math.min(window.innerWidth, window.innerHeight) - 120;
+  const S = Math.min(size, 500);
+  chartCanvas.width = S * dpr;
+  chartCanvas.height = S * dpr;
+  chartCanvas.style.width = S + 'px';
+  chartCanvas.style.height = S + 'px';
+  const ctx = chartCanvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, S, S);
+
+  const cx = S/2, cy = S/2;
+  const R = S/2 - 50;
+  const ep = EPISODES[epIdx];
+
+  // Guide rings
+  [0.5, 1.0].forEach(pct => {
+    ctx.strokeStyle = pct === 1 ? '#333344' : '#1a1a2a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let t = 0; t <= NUM_TOPICS; t++) {
+      const a = topicAngle(t%NUM_TOPICS);
+      const x = cx + Math.cos(a)*R*pct;
+      const y = cy + Math.sin(a)*R*pct;
+      t === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  });
+
+  // Spokes + labels
+  ctx.strokeStyle = '#222233';
+  ctx.fillStyle = '#666';
+  ctx.font = '9px Space Mono';
+  ctx.textAlign = 'center';
+  for (let t = 0; t < NUM_TOPICS; t++) {
+    const a = topicAngle(t);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx+Math.cos(a)*R*1.1, cy+Math.sin(a)*R*1.1);
+    ctx.stroke();
+    // Label
+    const lx = cx + Math.cos(a)*R*1.25;
+    const ly = cy + Math.sin(a)*R*1.25;
+    ctx.fillStyle = topicColorCSS(t);
+    ctx.fillText(TOPICS[t].name.length > 10 ? TOPICS[t].name.slice(0,10)+'..' : TOPICS[t].name, lx, ly+3);
+  }
+
+  // Data polygon (animated: expands from center)
+  ctx.strokeStyle = '#7DF9AA';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let t = 0; t <= NUM_TOPICS; t++) {
+    const ti = t%NUM_TOPICS;
+    const val = Math.min(ep.coverage[ti], 1.3) * progress;
+    const a = topicAngle(ti);
+    const x = cx + Math.cos(a)*R*val;
+    const y = cy + Math.sin(a)*R*val;
+    t === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  // Fill
+  ctx.fillStyle = 'rgba(125,249,170,0.08)';
+  ctx.fill();
+
+  // Dots with per-topic color
+  for (let t = 0; t < NUM_TOPICS; t++) {
+    const val = Math.min(ep.coverage[t], 1.3) * progress;
+    const a = topicAngle(t);
+    const x = cx + Math.cos(a)*R*val;
+    const y = cy + Math.sin(a)*R*val;
+    ctx.fillStyle = topicColorCSS(t);
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Coverage % labels at dots
+  if (progress >= 1) {
+    ctx.font = '8px Space Mono';
+    for (let t = 0; t < NUM_TOPICS; t++) {
+      const val = Math.min(ep.coverage[t], 1.3);
+      const a = topicAngle(t);
+      const x = cx + Math.cos(a)*R*val;
+      const y = cy + Math.sin(a)*R*val;
+      ctx.fillStyle = '#aaa';
+      ctx.textAlign = 'center';
+      ctx.fillText(Math.round(val*100)+'%', x, y - 8);
+    }
+  }
+}
+
+function animateChart(drawFn) {
+  chartAnimStart = performance.now();
+  function frame() {
+    const t = Math.min((performance.now()-chartAnimStart)/CHART_ANIM_DUR, 1);
+    const eased = easeInOutCubic(t);
+    drawFn(eased);
+    if (t < 1) chartAnimFrame = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// ── SLICE VIEW TRANSITIONS ────────────────────────────────────────────────────
+
+function enterTopicSlice(topicIdx) {
+  if (sliceMode) return;
+  sliceMode = 'topic';
+  sliceTarget = topicIdx;
+
+  savedCamPos = camera.position.clone();
+  savedCamTarget = controls.target.clone();
+
+  highlightSpoke(topicIdx);
+  sliceTitleEl.textContent = TOPICS[topicIdx].name;
+
+  // Tween camera, then show 2D overlay
+  const zMid = -((NUM_EPISODES-1)*Z_SPACING)/2;
+  const a = topicAngle(topicIdx);
+  const camDist = 25;
+  const toPos = new THREE.Vector3(Math.cos(a)*camDist, Math.sin(a)*camDist, zMid);
+  const toTarget = new THREE.Vector3(0, 0, zMid);
+
+  startTween(toPos, toTarget, 800, () => {
+    showOverlay();
+    animateChart(p => drawTopicLineChart(topicIdx, p));
+  });
+}
+
+function enterEpisodeSlice(epIdx) {
+  if (sliceMode) return;
+  sliceMode = 'episode';
+  sliceTarget = epIdx;
+
+  savedCamPos = camera.position.clone();
+  savedCamTarget = controls.target.clone();
+
+  highlightRing(epIdx);
+  sliceTitleEl.textContent = `Episode ${epIdx+1} \u00b7 ${EPISODES[epIdx].date}`;
+
+  // Tween camera to look down Z-axis at this episode
+  const z = -epIdx*Z_SPACING;
+  const toPos = new THREE.Vector3(0, 0, z + 30);
+  const toTarget = new THREE.Vector3(0, 0, z);
+
+  startTween(toPos, toTarget, 800, () => {
+    showOverlay();
+    animateChart(p => drawEpisodeRadarChart(epIdx, p));
+  });
+}
+
+function exitSliceView() {
+  if (!sliceMode) return;
+  hideOverlay();
+  clearHighlights();
+
+  const toPos = savedCamPos || new THREE.Vector3(0, 8, 30);
+  const toTarget = savedCamTarget || new THREE.Vector3(0, 0, -((NUM_EPISODES-1)*Z_SPACING)/2);
+
+  startTween(toPos, toTarget, 800, () => {
+    sliceMode = null;
+    sliceTarget = -1;
+    controls.enabled = true;
+  });
+}
+
+// ── RAYCASTING / CLICK / TOOLTIP ──────────────────────────────────────────────
 
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const tooltip = document.getElementById('tooltip');
 
 function onMouseMove(e) {
-  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  if (sliceMode) return;
+  mouse.x = (e.clientX/window.innerWidth)*2-1;
+  mouse.y = -(e.clientY/window.innerHeight)*2+1;
 
   raycaster.setFromCamera(mouse, camera);
   const intersects = raycaster.intersectObjects(sliceMeshes, false);
@@ -497,37 +768,80 @@ function onMouseMove(e) {
     const mesh = hit.object;
     const epIdx = mesh.userData.episodeIdx;
     const ep = EPISODES[epIdx];
-
-    // Determine topic from angle of hit point in local XY
     const local = mesh.worldToLocal(hit.point.clone());
     const angle = Math.atan2(local.y, local.x);
-    let norm = angle + Math.PI / 2;
-    if (norm < 0) norm += Math.PI * 2;
-    const topicIdx = Math.floor((norm / (Math.PI * 2)) * NUM_TOPICS) % NUM_TOPICS;
-
+    let norm = angle + Math.PI/2;
+    if (norm < 0) norm += Math.PI*2;
+    const topicIdx = Math.floor((norm/(Math.PI*2))*NUM_TOPICS) % NUM_TOPICS;
     const topic = TOPICS[topicIdx];
     const cov = ep.coverage[topicIdx];
-    const covPct = Math.round(cov * 100);
-    const mins = (cov * topic.alloc).toFixed(1);
-
     tooltip.innerHTML = `
       <div class="tt-topic">${topic.name}</div>
       <div>Episode ${ep.episode} <span class="tt-dim">\u00b7 ${ep.date}</span></div>
-      <div>${covPct}% coverage <span class="tt-dim">\u00b7 ~${mins}/${topic.alloc} min</span></div>
+      <div>${Math.round(cov*100)}% coverage <span class="tt-dim">\u00b7 ~${(cov*topic.alloc).toFixed(1)}/${topic.alloc} min</span></div>
     `;
     tooltip.style.display = 'block';
-    tooltip.style.left = (e.clientX + 14) + 'px';
-    tooltip.style.top = (e.clientY - 10) + 'px';
+    tooltip.style.left = (e.clientX+14)+'px';
+    tooltip.style.top = (e.clientY-10)+'px';
+    renderer.domElement.style.cursor = 'pointer';
   } else {
+    // Check spoke hover
+    const spokeHits = raycaster.intersectObjects(spokeMeshes, false);
+    if (spokeHits.length > 0) {
+      const t = spokeHits[0].object.userData.topicIdx;
+      tooltip.innerHTML = `<div class="tt-topic">${TOPICS[t].name}</div><div class="tt-dim">click for trend</div>`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX+14)+'px';
+      tooltip.style.top = (e.clientY-10)+'px';
+      renderer.domElement.style.cursor = 'pointer';
+    } else {
+      tooltip.style.display = 'none';
+      renderer.domElement.style.cursor = 'grab';
+    }
+  }
+}
+
+let mouseDownPos = null;
+function onMouseDown(e) { mouseDownPos = { x: e.clientX, y: e.clientY }; }
+
+function onClick(e) {
+  if (sliceMode || tweenActive) return;
+  // Only trigger on actual clicks, not drags
+  if (mouseDownPos && (Math.abs(e.clientX-mouseDownPos.x)>5 || Math.abs(e.clientY-mouseDownPos.y)>5)) return;
+
+  mouse.x = (e.clientX/window.innerWidth)*2-1;
+  mouse.y = -(e.clientY/window.innerHeight)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+
+  // Check spokes first
+  const spokeHits = raycaster.intersectObjects(spokeMeshes, false);
+  if (spokeHits.length > 0) {
     tooltip.style.display = 'none';
+    enterTopicSlice(spokeHits[0].object.userData.topicIdx);
+    return;
+  }
+
+  // Then check slice rings
+  const sliceHits = raycaster.intersectObjects(sliceMeshes, false);
+  if (sliceHits.length > 0) {
+    tooltip.style.display = 'none';
+    enterEpisodeSlice(sliceHits[0].object.userData.episodeIdx);
   }
 }
 
 renderer.domElement.addEventListener('mousemove', onMouseMove);
+renderer.domElement.addEventListener('mousedown', onMouseDown);
+renderer.domElement.addEventListener('click', onClick);
+
+// Escape key
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && sliceMode) exitSliceView();
+});
 
 // ── UI CONTROLS ───────────────────────────────────────────────────────────────
 
 function setView(mode) {
+  if (sliceMode) exitSliceView();
   viewMode = mode;
   document.querySelectorAll('.toggle-btn').forEach(btn => {
     btn.classList.toggle('active', btn.textContent.toLowerCase() === mode);
@@ -537,7 +851,7 @@ function setView(mode) {
 
 function onScrub(val) {
   scrubberValue = parseInt(val);
-  document.getElementById('episode-label').textContent = `Ep ${scrubberValue + 1}`;
+  document.getElementById('episode-label').textContent = `Ep ${scrubberValue+1}`;
   rebuildScene();
 }
 
@@ -551,18 +865,14 @@ function togglePlay() {
     playInterval = setInterval(() => {
       scrubberValue++;
       if (scrubberValue >= NUM_EPISODES) {
-        scrubberValue = NUM_EPISODES - 1;
-        isPlaying = false;
+        scrubberValue = NUM_EPISODES-1; isPlaying = false;
         document.getElementById('play-btn').innerHTML = '&#9654;';
-        clearInterval(playInterval);
-        return;
+        clearInterval(playInterval); return;
       }
       document.getElementById('scrubber').value = scrubberValue;
       onScrub(scrubberValue);
     }, 350);
-  } else {
-    clearInterval(playInterval);
-  }
+  } else { clearInterval(playInterval); }
 }
 
 function buildSidebar() {
@@ -572,7 +882,7 @@ function buildSidebar() {
     const div = document.createElement('div');
     div.className = 'topic-toggle' + (topicVisible[t] ? '' : ' off');
     div.innerHTML = `
-      <span class="dot" style="background: #${TOPIC_COLORS[t % TOPIC_COLORS.length].toString(16).padStart(6, '0')}"></span>
+      <span class="dot" style="background: ${topicColorCSS(t)}"></span>
       <span class="label">${TOPICS[t].name}</span>
       <span class="pct" id="pct-${t}">\u2014</span>
     `;
@@ -589,22 +899,26 @@ function updateSidebarPcts() {
   const ep = EPISODES[scrubberValue];
   for (let t = 0; t < NUM_TOPICS; t++) {
     const el = document.getElementById(`pct-${t}`);
-    if (el) el.textContent = Math.round(ep.coverage[t] * 100) + '%';
+    if (el) el.textContent = Math.round(ep.coverage[t]*100)+'%';
   }
 }
 
 // ── RESIZE ────────────────────────────────────────────────────────────────────
 
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // Redraw 2D chart if overlay visible
+  if (sliceMode === 'topic') drawTopicLineChart(sliceTarget, 1);
+  if (sliceMode === 'episode') drawEpisodeRadarChart(sliceTarget, 1);
 });
 
 // ── ANIMATE ───────────────────────────────────────────────────────────────────
 
 function animate() {
   requestAnimationFrame(animate);
+  updateTween();
   controls.update();
   renderer.render(scene, camera);
 }
@@ -613,11 +927,9 @@ function animate() {
 
 async function init() {
   await loadRealData();
-  // Recalculate camera target based on actual episode count
-  controls.target.set(0, 0, -((NUM_EPISODES - 1) * Z_SPACING) / 2);
+  controls.target.set(0, 0, -((NUM_EPISODES-1)*Z_SPACING)/2);
   camera.position.set(0, 8, 30);
   controls.update();
-
   buildSidebar();
   buildAxes();
   rebuildScene();
