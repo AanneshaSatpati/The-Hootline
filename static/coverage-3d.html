@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Noctua — Topic Coverage 3D</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     background: #0a0a0f;
@@ -144,6 +144,10 @@ if (typeof THREE === 'undefined') {
   document.body.innerHTML = '<div style="color:#f55;padding:40px;font-family:monospace;">Three.js failed to load. Check network/console.</div>';
   throw new Error('Three.js not loaded');
 }
+if (typeof THREE.OrbitControls === 'undefined') {
+  document.body.innerHTML = '<div style="color:#f55;padding:40px;font-family:monospace;">OrbitControls failed to load. Check network/console.</div>';
+  throw new Error('OrbitControls not loaded');
+}
 // ── DATA ──────────────────────────────────────────────────────────────────────
 
 let TOPICS = [
@@ -210,7 +214,7 @@ async function loadRealData() {
     document.getElementById('episode-label').textContent = `Ep ${NUM_EPISODES}`;
     document.querySelector('#header p').textContent = `3D radar \u00b7 ${NUM_EPISODES} episodes`;
     return true;
-  } catch(e) { return false; }
+  } catch(e) { console.error('[Coverage3D] loadRealData error:', e); return false; }
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -242,13 +246,16 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0f);
 scene.fog = new THREE.FogExp2(0x0a0a0f, 0.0015);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 2000);
+// Use fallback dimensions if iframe hasn't been laid out yet
+const initW = window.innerWidth || document.documentElement.clientWidth || 800;
+const initH = window.innerHeight || document.documentElement.clientHeight || 600;
+const camera = new THREE.PerspectiveCamera(50, initW / initH, 0.1, 2000);
 camera.position.set(0, 8, 30);
 
 let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(initW, initH);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   container.appendChild(renderer.domElement);
 } catch(e) {
@@ -919,14 +926,21 @@ function updateSidebarPcts() {
 
 // ── RESIZE ────────────────────────────────────────────────────────────────────
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth/window.innerHeight;
+function handleResize() {
+  const w = window.innerWidth || document.documentElement.clientWidth || 800;
+  const h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 10 || h < 10) return; // skip if hidden/zero-size
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  // Redraw 2D chart if overlay visible
+  renderer.setSize(w, h);
   if (sliceMode === 'topic') drawTopicLineChart(sliceTarget, 1);
   if (sliceMode === 'episode') drawEpisodeRadarChart(sliceTarget, 1);
-});
+}
+window.addEventListener('resize', handleResize);
+// Also handle iframe becoming visible (tab switch)
+if (window.ResizeObserver) {
+  new ResizeObserver(() => handleResize()).observe(document.body);
+}
 
 // ── ANIMATE ───────────────────────────────────────────────────────────────────
 
@@ -952,8 +966,12 @@ async function init() {
   buildSidebar();
   buildAxes();
   rebuildScene();
+  // Force a resize after init to ensure correct dimensions (iframe may have changed size)
+  handleResize();
   dbg('Ready | Slices: ' + sliceGroup.children.length + ' | WebGL: ' + (renderer.getContext() ? 'ok' : 'FAIL'));
   animate();
+  // Schedule another resize check after layout settles
+  setTimeout(handleResize, 200);
 }
 
 init().catch(e => { dbg('ERROR: ' + e.message); console.error('[Coverage3D] Init error:', e); });

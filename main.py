@@ -1597,10 +1597,10 @@ DASHBOARD_HTML = """\
 </header>
 
 <div class="tab-bar">
-  <button class="tab-btn active" onclick="switchTab('latest')">Latest</button>
-  <button class="tab-btn" onclick="switchTab('history')">History</button>
-  <button class="tab-btn" onclick="switchTab('coverage3d')">Coverage 3D</button>
-  <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+  <button class="tab-btn active" onclick="switchTab('latest', this)">Latest</button>
+  <button class="tab-btn" onclick="switchTab('history', this)">History</button>
+  <button class="tab-btn" onclick="switchTab('coverage3d', this)">Coverage 3D</button>
+  <button class="tab-btn" onclick="switchTab('settings', this)">Settings</button>
 </div>
 
 <div id="tab-latest" class="tab-content active">
@@ -1673,10 +1673,10 @@ async function loadShowFormat() {
   }
 }
 
-function switchTab(tab) {
+function switchTab(tab, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  event.target.classList.add('active');
+  if (btn) btn.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'history') loadHistory();
   if (tab === 'coverage3d') {
