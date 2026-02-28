@@ -563,9 +563,11 @@ async def api_history(show_id: str = Query(default="")):
     digests = database.list_digests_with_char_count(limit=100, db_path=db_path)
     episodes_list = database.list_episodes(db_path=db_path)
     ep_by_date = {ep["date"]: ep for ep in episodes_list}
+    digest_dates = set()
 
     rows = []
     for d in digests:
+        digest_dates.add(d["date"])
         ep = ep_by_date.get(d["date"])
         gcs_url = ep.get("gcs_url", "") if ep else ""
         local_file = episodes_dir / f"noctua-{d['date']}.mp3"
@@ -585,6 +587,28 @@ async def api_history(show_id: str = Query(default="")):
             "gcs_url": gcs_url,
         })
 
+    # Include episodes that have no matching digest (e.g. digest lost during redeploy)
+    for ep in episodes_list:
+        if ep["date"] not in digest_dates:
+            gcs_url = ep.get("gcs_url", "")
+            local_file = episodes_dir / f"noctua-{ep['date']}.mp3"
+            has_audio = bool(gcs_url) or local_file.exists()
+            rows.append({
+                "date": ep["date"],
+                "article_count": 0,
+                "total_words": 0,
+                "total_chars": 0,
+                "email_count": 0,
+                "topics_summary": ep.get("topics_summary", ""),
+                "has_digest": False,
+                "has_audio": has_audio,
+                "duration_formatted": ep["duration_formatted"],
+                "file_size_bytes": ep["file_size_bytes"],
+                "rss_summary": ep.get("rss_summary", ""),
+                "gcs_url": gcs_url,
+            })
+
+    rows.sort(key=lambda r: r["date"], reverse=True)
     return JSONResponse({"rows": rows, "total": len(rows)})
 
 
