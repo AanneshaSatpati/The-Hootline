@@ -585,24 +585,54 @@ async def api_coverage_dashboard(show_id: str = Query(default="")):
         limit=100, published_only=True, db_path=db_path
     )
 
+    # Load audio analysis data keyed by date
+    audio_eps = database.get_episodes_with_audio(limit=200, db_path=db_path)
+    audio_by_date = {}
+    for ep in audio_eps:
+        audio_by_date[ep["date"]] = {
+            "words": json.loads(ep.get("audio_segment_words") or "{}"),
+            "status": ep.get("audio_analysis_status", "none"),
+        }
+
     episodes_out = []
     for d in digests:
         segment_words = _parse_segment_words(d["markdown_text"], segment_order)
-        coverage = {}
+
+        # Digest coverage (from markdown text)
+        digest_coverage = {}
         for topic_name in segment_order:
             target_mins = duration_map.get(topic_name, 1)
             target_words = target_mins * words_per_minute
             actual_words = segment_words.get(topic_name, 0)
             pct = round(actual_words / target_words, 4) if target_words > 0 else 0
-            coverage[topic_name] = {
+            digest_coverage[topic_name] = {
                 "pct": pct,
                 "actual_words": actual_words,
                 "target_words": target_words,
             }
+
+        # Audio coverage (from transcription analysis)
+        audio_info = audio_by_date.get(d["date"], {"words": {}, "status": "none"})
+        audio_words = audio_info["words"]
+        audio_coverage = {}
+        for topic_name in segment_order:
+            target_mins = duration_map.get(topic_name, 1)
+            target_words = target_mins * words_per_minute
+            actual_words = audio_words.get(topic_name, 0)
+            pct = round(actual_words / target_words, 4) if target_words > 0 else 0
+            audio_coverage[topic_name] = {
+                "pct": pct,
+                "actual_words": actual_words,
+                "target_words": target_words,
+            }
+
         episodes_out.append({
             "date": d["date"],
             "total_words": d["total_words"],
-            "coverage": coverage,
+            "coverage": digest_coverage,
+            "digest_coverage": digest_coverage,
+            "audio_coverage": audio_coverage,
+            "audio_status": audio_info["status"],
         })
 
     topics = []
@@ -617,7 +647,6 @@ async def api_coverage_dashboard(show_id: str = Query(default="")):
     return JSONResponse({
         "topics": topics,
         "episodes": episodes_out,
-        "audio_note": "Audio coverage estimated from word distribution",
     })
 
 
@@ -1153,6 +1182,25 @@ async def api_preparation_digest(show_id: str = Query(default="")):
     )
 
 
+async def _transcribe_episode_background(date: str, mp3_path: Path, show: ShowConfig) -> None:
+    """Run audio transcription in background, save results to DB."""
+    from src.audio_transcriber import transcribe_episode
+    try:
+        database.set_audio_analysis_status(date, "running", db_path=show.db_path)
+        segment_order = show.format.segment_order
+        segment_durations = show.format.segment_durations
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, transcribe_episode, mp3_path, segment_order, segment_durations
+        )
+        database.update_audio_analysis(date, result, db_path=show.db_path)
+        gcs_storage.upload_db(show.db_path, show.show_id)
+        logger.info("Audio transcription complete for %s: %s", date, result)
+    except Exception as e:
+        logger.error("Audio transcription failed for %s: %s", date, e)
+        database.set_audio_analysis_status(date, "failed", db_path=show.db_path)
+
+
 @app.post("/api/publish-episode")
 async def api_publish_episode(date: str = Form(""), show_id: str = Form("")):
     """Publish a prepared episode to RSS and archive."""
@@ -1208,6 +1256,9 @@ async def api_publish_episode(date: str = Form(""), show_id: str = Form("")):
     # Sync DB to GCS so dev/prod stay in sync
     gcs_storage.upload_db(show.db_path, show.show_id)
 
+    # Trigger audio transcription in background (non-blocking)
+    asyncio.create_task(_transcribe_episode_background(date, mp3_path, show))
+
     # Determine feed URL
     is_legacy = show.is_legacy
     feed_url = f"{settings.base_url}/feed.xml" if is_legacy else f"{settings.base_url}/{show.show_id}/feed.xml"
@@ -1224,6 +1275,47 @@ async def api_publish_episode(date: str = Form(""), show_id: str = Form("")):
             "gcs_url": metadata.gcs_url,
         },
     })
+
+
+@app.post("/api/transcribe-episode")
+async def api_transcribe_episode(date: str = Form(""), show_id: str = Form("")):
+    """Manually trigger audio transcription for an episode."""
+    state = _resolve_show(show_id)
+    show = state.show
+
+    if not date or not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        return JSONResponse({"error": "Invalid date format."}, status_code=400)
+
+    if not database.has_episode(date, db_path=show.db_path):
+        return JSONResponse({"error": f"No episode found for {date}."}, status_code=404)
+
+    mp3_path = show.episodes_dir / f"noctua-{date}.mp3"
+    if not mp3_path.exists():
+        return JSONResponse(
+            {"error": f"MP3 file not found locally for {date}."},
+            status_code=404,
+        )
+
+    status = database.get_episodes_with_audio(limit=200, db_path=show.db_path)
+    current = next((e for e in status if e["date"] == date), None)
+    if current and current.get("audio_analysis_status") == "running":
+        return JSONResponse({"error": "Transcription already in progress."}, status_code=409)
+
+    database.set_audio_analysis_status(date, "pending", db_path=show.db_path)
+    asyncio.create_task(_transcribe_episode_background(date, mp3_path, show))
+
+    return JSONResponse({"status": "ok", "message": f"Transcription started for {date}."})
+
+
+@app.get("/api/transcription-status")
+async def api_transcription_status(date: str = Query(""), show_id: str = Query("")):
+    """Check audio transcription status for an episode."""
+    state = _resolve_show(show_id)
+    eps = database.get_episodes_with_audio(limit=200, db_path=state.show.db_path)
+    ep = next((e for e in eps if e["date"] == date), None)
+    status = ep.get("audio_analysis_status", "none") if ep else "none"
+    audio_words = json.loads(ep.get("audio_segment_words") or "{}") if ep else {}
+    return JSONResponse({"date": date, "status": status, "audio_segment_words": audio_words})
 
 
 @app.post("/api/bump-revision")
@@ -1735,6 +1827,7 @@ DASHBOARD_HTML = """\
         <button class="cov-toggle" onclick="covSetMode('digest')" style="border-radius:0;">Digest</button>
         <button class="cov-toggle active" onclick="covSetMode('both')" style="border-radius:0 3px 3px 0;">Both</button>
       </div>
+      <button id="cov-analyze-btn" onclick="covTriggerAnalysis()" style="margin-left:8px;padding:4px 10px;font-size:10px;background:var(--surface);color:var(--accent);border:1px solid var(--accent);border-radius:4px;cursor:pointer;display:none;" title="Transcribe audio for per-topic analysis">Analyze Audio</button>
     </div>
     <div id="cov-range-controls" style="display:none;margin-bottom:12px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
@@ -1833,6 +1926,7 @@ async function covInit() {
     _cov.loaded = true;
     covInitRangeControls();
     covUpdateStats();
+    covUpdateAnalyzeBtn();
     covDraw();
     var cv = document.getElementById('cov-canvas');
     cv.onmousemove = covCanvasHover;
@@ -1928,18 +2022,64 @@ function covGetSelectedEpisodes() {
 }
 
 function covComputeCoverage() {
+  return covComputeCoverageFor(_cov.mode === 'both' ? 'digest' : _cov.mode);
+}
+
+function covComputeCoverageFor(forceMode) {
   var eps = covGetSelectedEpisodes();
   var topics = _cov.topics;
   var result = {};
   for (var i = 0; i < topics.length; i++) {
     var sum = 0, count = 0;
     for (var j = 0; j < eps.length; j++) {
-      var c = eps[j].coverage[topics[i].name];
+      var src = (forceMode === 'audio') ? eps[j].audio_coverage : eps[j].digest_coverage;
+      if (!src) src = eps[j].coverage;
+      var c = src ? src[topics[i].name] : null;
       if (c) { sum += c.pct; count++; }
     }
     result[topics[i].name] = count > 0 ? sum / count : 0;
   }
   return result;
+}
+
+function covHasRealAudio() {
+  return _cov.episodes.some(function(ep) { return ep.audio_status === 'complete'; });
+}
+
+function covUpdateAnalyzeBtn() {
+  var btn = document.getElementById('cov-analyze-btn');
+  if (!btn || !_cov || !_cov.loaded) return;
+  var needsAnalysis = _cov.episodes.some(function(ep) {
+    return ep.audio_status === 'none' || ep.audio_status === 'failed';
+  });
+  btn.style.display = needsAnalysis ? 'inline-block' : 'none';
+}
+
+async function covTriggerAnalysis() {
+  if (!_cov || !_cov.loaded) return;
+  var btn = document.getElementById('cov-analyze-btn');
+  btn.textContent = 'Analyzing...';
+  btn.disabled = true;
+  // Find episodes that need analysis
+  var pending = _cov.episodes.filter(function(ep) {
+    return ep.audio_status === 'none' || ep.audio_status === 'failed';
+  });
+  for (var i = 0; i < pending.length; i++) {
+    try {
+      var fd = new FormData();
+      fd.append('date', pending[i].date);
+      fd.append('show_id', SHOW_ID);
+      await fetch(apiUrl('/api/transcribe-episode'), { method: 'POST', body: fd });
+    } catch(e) { console.error('Transcribe trigger error:', e); }
+  }
+  btn.textContent = pending.length + ' queued';
+  setTimeout(function() {
+    btn.textContent = 'Analyze Audio';
+    btn.disabled = false;
+    // Refresh data
+    _cov = null;
+    covInit();
+  }, 5000);
 }
 
 function covUpdateStats() {
@@ -2017,15 +2157,21 @@ function covDrawRadar() {
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(p.x, p.y); ctx.stroke();
   }
 
-  // Coverage values (capped visually at 2.5x for display)
-  var vals = [];
-  for (var i = 0; i < nt; i++) vals.push(coverage[topics[i].name] || 0);
+  // Coverage values — compute per mode
+  var mode = _cov.mode;
+  var digestCov = covComputeCoverageFor('digest');
+  var audioCov = covComputeCoverageFor('audio');
+  var vals = []; // primary values used for dots/labels
+  for (var i = 0; i < nt; i++) {
+    if (mode === 'audio') vals.push(audioCov[topics[i].name] || 0);
+    else vals.push(digestCov[topics[i].name] || 0); // digest or both default
+  }
 
   // Draw polygon helper
-  function drawPoly(color, alpha) {
+  function drawPolyVals(vArr, color, alpha) {
     ctx.beginPath();
     for (var i = 0; i < nt; i++) {
-      var v = Math.min(vals[i], 2.5);
+      var v = Math.min(vArr[i], 2.5);
       var p = pt(i, v * R);
       i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
     }
@@ -2038,11 +2184,21 @@ function covDrawRadar() {
     ctx.stroke();
   }
 
-  var mode = _cov.mode;
-  if (mode === 'audio' || mode === 'both') drawPoly(COV_AUDIO, 0.10);
-  if (mode === 'digest' || mode === 'both') drawPoly(COV_DIGEST, 0.14);
+  if (mode === 'both') {
+    var aVals = [], dVals = [];
+    for (var i = 0; i < nt; i++) {
+      aVals.push(audioCov[topics[i].name] || 0);
+      dVals.push(digestCov[topics[i].name] || 0);
+    }
+    drawPolyVals(aVals, COV_AUDIO, 0.10);
+    drawPolyVals(dVals, COV_DIGEST, 0.14);
+  } else if (mode === 'audio') {
+    drawPolyVals(vals, COV_AUDIO, 0.12);
+  } else {
+    drawPolyVals(vals, COV_DIGEST, 0.14);
+  }
 
-  // Dots at vertices
+  // Dots at vertices (use primary vals)
   for (var i = 0; i < nt; i++) {
     var v = Math.min(vals[i], 2.5);
     var p = pt(i, v * R);
@@ -2081,12 +2237,13 @@ function covDrawRadar() {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   var legY = H - 20;
+  var hasReal = covHasRealAudio();
   if (mode === 'both' || mode === 'audio') {
     ctx.fillStyle = COV_AUDIO; ctx.fillRect(10, legY, 12, 8);
-    ctx.fillStyle = '#666'; ctx.fillText('Audio (est.)', 26, legY);
+    ctx.fillStyle = '#666'; ctx.fillText(hasReal ? 'Audio' : 'Audio (pending)', 26, legY);
   }
   if (mode === 'both' || mode === 'digest') {
-    var ox = mode === 'both' ? 120 : 10;
+    var ox = mode === 'both' ? (hasReal ? 90 : 140) : 10;
     ctx.fillStyle = COV_DIGEST; ctx.fillRect(ox, legY, 12, 8);
     ctx.fillStyle = '#666'; ctx.fillText('Digest', ox + 16, legY);
   }
@@ -2118,8 +2275,21 @@ function covDrawArea() {
   var ne = eps.length;
   if (ne < 1) return;
 
-  var values = eps.map(function(ep) { var c = ep.coverage[topic.name]; return c ? c.pct : 0; });
-  var maxVal = Math.max(1.3, Math.max.apply(null, values)) * 1.1;
+  // Compute values per mode
+  var mode = _cov.mode;
+  function epVals(src) {
+    return eps.map(function(ep) {
+      var s = (src === 'audio') ? ep.audio_coverage : ep.digest_coverage;
+      if (!s) s = ep.coverage;
+      var c = s ? s[topic.name] : null;
+      return c ? c.pct : 0;
+    });
+  }
+  var digestVals = epVals('digest');
+  var audioVals = epVals('audio');
+  var values = (mode === 'audio') ? audioVals : digestVals;
+  var allVals = digestVals.concat(audioVals);
+  var maxVal = Math.max(1.3, Math.max.apply(null, allVals)) * 1.1;
 
   // Title
   ctx.fillStyle = color;
@@ -2165,14 +2335,13 @@ function covDrawArea() {
     ctx.fillText(eps[i].date.slice(5), xx, pad.top + plotH + 10);
   }
 
-  // Helper: draw filled area + line
-  function drawAreaFill(fillColor, strokeColor, alpha) {
+  // Helper: draw filled area + line from value array
+  function drawAreaFill(vArr, fillColor, strokeColor, alpha) {
     if (ne < 2) return;
-    // Fill
     ctx.beginPath();
     for (var i = 0; i < ne; i++) {
       var xx = pad.left + (i / (ne - 1)) * plotW;
-      var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
+      var yy = pad.top + plotH - (vArr[i] / maxVal) * plotH;
       i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
     }
     ctx.lineTo(pad.left + plotW, pad.top + plotH);
@@ -2181,24 +2350,28 @@ function covDrawArea() {
     var cr = parseInt(fillColor.slice(1,3),16), cg = parseInt(fillColor.slice(3,5),16), cb = parseInt(fillColor.slice(5,7),16);
     ctx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+alpha+')';
     ctx.fill();
-    // Stroke
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.beginPath();
     for (var i = 0; i < ne; i++) {
       var xx = pad.left + (i / (ne - 1)) * plotW;
-      var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
+      var yy = pad.top + plotH - (vArr[i] / maxVal) * plotH;
       i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
     }
     ctx.stroke();
   }
 
-  var mode = _cov.mode;
-  if (mode === 'audio' || mode === 'both') drawAreaFill(COV_AUDIO, COV_AUDIO, 0.10);
-  if (mode === 'digest' || mode === 'both') drawAreaFill(COV_DIGEST, COV_DIGEST, 0.14);
+  if (mode === 'both') {
+    drawAreaFill(audioVals, COV_AUDIO, COV_AUDIO, 0.10);
+    drawAreaFill(digestVals, COV_DIGEST, COV_DIGEST, 0.14);
+  } else if (mode === 'audio') {
+    drawAreaFill(audioVals, COV_AUDIO, COV_AUDIO, 0.12);
+  } else {
+    drawAreaFill(digestVals, COV_DIGEST, COV_DIGEST, 0.14);
+  }
 
-  // Dots
+  // Dots (primary values)
   for (var i = 0; i < ne; i++) {
     var xx = pad.left + (ne > 1 ? (i / (ne - 1)) * plotW : plotW / 2);
     var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
@@ -2209,10 +2382,11 @@ function covDrawArea() {
   }
 
   // Mode legend
+  var hasReal = covHasRealAudio();
   ctx.font = '9px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
   if (mode === 'both' || mode === 'audio') {
     ctx.fillStyle = COV_AUDIO; ctx.fillRect(W - 160, pad.top + 4, 12, 8);
-    ctx.fillStyle = '#666'; ctx.fillText('Audio (est.)', W - 90, pad.top + 4);
+    ctx.fillStyle = '#666'; ctx.fillText(hasReal ? 'Audio' : 'Audio (pending)', W - 90, pad.top + 4);
   }
   if (mode === 'both' || mode === 'digest') {
     var oy = mode === 'both' ? pad.top + 18 : pad.top + 4;

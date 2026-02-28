@@ -45,5 +45,9 @@ class LLMAPIError(NoctuaError):
 ClaudeAPIError = LLMAPIError
 
 
+class AudioTranscriptionError(NoctuaError):
+    """Raised when audio transcription or analysis fails."""
+
+
 class FeedBuildError(NoctuaError):
     """Raised when building the RSS feed fails."""

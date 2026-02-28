@@ -89,6 +89,16 @@ def _create_tables(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE digests ADD COLUMN email_count INTEGER NOT NULL DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    # Migrate: add audio_segment_words column to episodes if missing
+    try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN audio_segment_words TEXT NOT NULL DEFAULT '{}'")
+    except sqlite3.OperationalError:
+        pass
+    # Migrate: add audio_analysis_status column to episodes if missing
+    try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN audio_analysis_status TEXT NOT NULL DEFAULT 'none'")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
 
 
@@ -363,6 +373,54 @@ def list_episodes(limit: int = 0, db_path: Path | None = None) -> list[dict]:
             rows = conn.execute(
                 "SELECT * FROM episodes ORDER BY date DESC"
             ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# --- Audio Analysis ---
+
+def update_audio_analysis(date: str, audio_segment_words: dict[str, int],
+                          status: str = "complete",
+                          db_path: Path | None = None) -> None:
+    """Update the audio transcription results for an episode."""
+    conn = _get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE episodes SET audio_segment_words = ?, audio_analysis_status = ? "
+            "WHERE date = ?",
+            (json.dumps(audio_segment_words), status, date),
+        )
+        conn.commit()
+        logger.info("Updated audio analysis for %s (status=%s)", date, status)
+    finally:
+        conn.close()
+
+
+def set_audio_analysis_status(date: str, status: str,
+                              db_path: Path | None = None) -> None:
+    """Update only the audio analysis status for an episode."""
+    conn = _get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE episodes SET audio_analysis_status = ? WHERE date = ?",
+            (status, date),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_episodes_with_audio(limit: int = 100,
+                            db_path: Path | None = None) -> list[dict]:
+    """Get episodes with audio analysis data (oldest first)."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT date, audio_segment_words, audio_analysis_status "
+            "FROM episodes ORDER BY date ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
