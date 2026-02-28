@@ -19,7 +19,7 @@ from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
 from config import LOCAL_TZ, ShowConfig, ShowFormat, SHOW_FORMATS, settings, shows
-from src import database, episode_manager, feed_builder
+from src import database, episode_manager, feed_builder, gcs_storage
 from src.episode_manager import _ffmpeg_path
 from src.models import CompiledDigest
 
@@ -39,33 +39,6 @@ def _pst_now() -> datetime:
     """Return the current datetime in local Seattle time (PST/PDT)."""
     return datetime.now(LOCAL_TZ)
 
-
-def _iso_week_label(dt: datetime) -> str:
-    """Return a week label like 'W08-2026' from a date."""
-    iso_year, iso_week, _ = dt.isocalendar()
-    return f"W{iso_week:02d}-{iso_year}"
-
-
-def _week_date_range(dt: datetime) -> tuple[str, str]:
-    """Return (monday_str, sunday_str) for the ISO week containing dt."""
-    iso_year, iso_week, iso_day = dt.isocalendar()
-    monday = dt.date() - timedelta(days=iso_day - 1)
-    sunday = monday + timedelta(days=6)
-    return monday.strftime("%Y-%m-%d"), sunday.strftime("%Y-%m-%d")
-
-
-def _add_digests_to_zip(zf: zipfile.ZipFile, mon: str, sun: str,
-                        db_path: Path | None = None) -> int:
-    """Add digest .md files for dates in [mon, sun] to an open ZipFile."""
-    count = 0
-    digests = database.list_digests(limit=100, db_path=db_path)
-    for d in digests:
-        if mon <= d["date"] <= sun:
-            full = database.get_digest(d["date"], db_path=db_path)
-            if full and full["markdown_text"]:
-                zf.writestr(f"noctua-digest-{d['date']}.md", full["markdown_text"])
-                count += 1
-    return count
 
 
 # --- Per-show state ---
@@ -154,8 +127,6 @@ async def _run_generation(state: ShowState) -> None:
                 logger.info("[%s] Removed stale prep file: %s", show.show_id, stale_prep.name)
 
         try:
-            await _maybe_monday_cleanup(state)
-
             def _run_sync():
                 return asyncio.run(generate_digest_only(show=show, save_to_db=False))
 
@@ -180,66 +151,6 @@ async def _run_generation(state: ShowState) -> None:
             state.generation_running = False
             state.preparation_cancelled = False
 
-
-def _last_week_mp3s_exist(state: ShowState) -> bool:
-    """Check if MP3s from last week are still on disk."""
-    episodes_dir = state.show.episodes_dir
-    if not episodes_dir.exists():
-        return False
-    now = _pst_now()
-    last_week = now - timedelta(weeks=1)
-    mon, sun = _week_date_range(last_week)
-    for mp3 in episodes_dir.glob("noctua-*.mp3"):
-        date_str = mp3.stem.removeprefix("noctua-")
-        if mon <= date_str <= sun:
-            return True
-    return False
-
-
-def _monday_cleanup(state: ShowState) -> None:
-    """Archive last week's MP3s, then clear episodes and digests for that week."""
-    show = state.show
-    episodes_dir = show.episodes_dir
-    exports_dir = show.exports_dir
-    db_path = show.db_path
-
-    now = _pst_now()
-    last_week = now - timedelta(weeks=1)
-    mon, sun = _week_date_range(last_week)
-    week_label = _iso_week_label(last_week)
-
-    mp3s = sorted(
-        mp3 for mp3 in episodes_dir.glob("noctua-*.mp3")
-        if mon <= mp3.stem.removeprefix("noctua-") <= sun
-    )
-
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    zip_name = f"{show.show_id}-{week_label}.zip"
-    zip_path = exports_dir / zip_name
-    if mp3s and not zip_path.exists():
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
-            for mp3 in mp3s:
-                zf.write(mp3, mp3.name)
-            digest_count = _add_digests_to_zip(zf, mon, sun, db_path=db_path)
-        logger.info("[%s] Archived %d episodes + %d digests to %s", show.show_id, len(mp3s), digest_count, zip_name)
-
-    for mp3 in mp3s:
-        mp3.unlink()
-        logger.info("[%s] Deleted %s", show.show_id, mp3.name)
-
-    # Only delete last week's digests from DB — never touch the feed/episodes catalog;
-    # sync_catalog_from_db will rebuild the feed from whatever episodes remain in the DB.
-    database.delete_digests_between(mon, sun, db_path=db_path)
-    feed_builder.sync_catalog_from_db(show=show)
-    logger.info("[%s] Monday cleanup complete for %s (%s to %s)", show.show_id, week_label, mon, sun)
-
-
-async def _maybe_monday_cleanup(state: ShowState) -> None:
-    """Run Monday cleanup if it's Monday PST and last week's MP3s still exist."""
-    now = _pst_now()
-    if now.weekday() == 0 and _last_week_mp3s_exist(state):
-        logger.info("[%s] Monday PST detected — running weekly cleanup.", state.show.show_id)
-        _monday_cleanup(state)
 
 
 async def _scheduler() -> None:
@@ -266,13 +177,13 @@ async def lifespan(app: FastAPI):
     for show_id, show in shows.items():
         _show_states[show_id] = ShowState(show=show)
 
-    # Ensure output directories exist and sync feeds for all shows
+    # Ensure output directories exist, download DB from GCS, and sync feeds
     for state in _show_states.values():
         show = state.show
         show.episodes_dir.mkdir(parents=True, exist_ok=True)
         show.exports_dir.mkdir(parents=True, exist_ok=True)
+        gcs_storage.download_db(show.db_path, show.show_id)
         feed_builder.sync_catalog_from_db(show=show)
-        await _maybe_monday_cleanup(state)
 
         if _missed_todays_run(state):
             logger.info("[%s] Startup: missed today's scheduled run — triggering now.", show.show_id)
@@ -605,6 +516,39 @@ async def api_topic_coverage(
         "has_data": has_data,
         "mode": mode,
     })
+
+
+@app.get("/api/topic-coverage-3d")
+async def api_topic_coverage_3d(show_id: str = Query(default="")):
+    """Per-episode topic coverage data for the 3D visualization."""
+    state = _resolve_show(show_id)
+    db_path = state.show.db_path
+    fmt = state.show.format
+    duration_map = fmt.segment_durations
+    segment_order = fmt.segment_order
+
+    digests = database.get_topic_coverage(limit=100, published_only=True, db_path=db_path)
+    digests.reverse()  # oldest first
+
+    episodes = []
+    for d in digests:
+        coverage = []
+        for name in segment_order:
+            mins = duration_map.get(name, 1)
+            capacity = max(2, round(mins * 1.5))
+            count = d["segment_counts"].get(name, 0)
+            ratio = round(min(count / capacity, 1.3), 3) if capacity else 0
+            coverage.append(ratio)
+        episodes.append({
+            "date": d["date"],
+            "coverage": coverage,
+        })
+
+    topics = []
+    for name in segment_order:
+        topics.append({"name": name, "alloc": duration_map.get(name, 1)})
+
+    return JSONResponse({"topics": topics, "episodes": episodes})
 
 
 @app.get("/api/history")
@@ -1167,6 +1111,9 @@ async def api_publish_episode(date: str = Form(""), show_id: str = Form("")):
     state.preparation_active = False
     state.preparation_digest = None
 
+    # Sync DB to GCS so dev/prod stay in sync
+    gcs_storage.upload_db(show.db_path, show.show_id)
+
     # Determine feed URL
     is_legacy = show.is_legacy
     feed_url = f"{settings.base_url}/feed.xml" if is_legacy else f"{settings.base_url}/{show.show_id}/feed.xml"
@@ -1193,6 +1140,24 @@ async def api_bump_revision(date: str = Form(""), show_id: str = Form("")):
         return JSONResponse({"error": "Invalid date format."}, status_code=400)
     new_rev = feed_builder.bump_revision(date, show=state.show)
     return JSONResponse({"status": "ok", "date": date, "revision": new_rev})
+
+
+@app.post("/api/sync-db")
+async def api_sync_db(show_id: str = Form("")):
+    """Force upload local DB to GCS (prod only)."""
+    if not gcs_storage._is_prod():
+        return JSONResponse(
+            {"error": "Dev environment is read-only against prod GCS."},
+            status_code=403,
+        )
+    state = _resolve_show(show_id)
+    show = state.show
+    if not gcs_storage.is_configured():
+        return JSONResponse({"error": "GCS not configured."}, status_code=400)
+    ok = gcs_storage.upload_db(show.db_path, show.show_id)
+    if ok:
+        return JSONResponse({"status": "ok", "message": f"DB uploaded for {show.show_id}."})
+    return JSONResponse({"error": "DB upload failed — check logs."}, status_code=500)
 
 
 @app.post("/api/cancel-preparation")
@@ -1610,6 +1575,7 @@ DASHBOARD_HTML = """\
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('latest')">Latest</button>
   <button class="tab-btn" onclick="switchTab('history')">History</button>
+  <button class="tab-btn" onclick="switchTab('coverage3d')">Coverage 3D</button>
   <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
 </div>
 
@@ -1629,6 +1595,10 @@ DASHBOARD_HTML = """\
     </div>
     <div class="latest-right" id="hist-radar"></div>
   </div>
+</div>
+
+<div id="tab-coverage3d" class="tab-content">
+  <iframe id="coverage3d-frame" style="width:100%;height:calc(100vh - 80px);border:none;border-radius:6px;"></iframe>
 </div>
 
 <div id="tab-settings" class="tab-content">
@@ -1685,6 +1655,13 @@ function switchTab(tab) {
   event.target.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'history') loadHistory();
+  if (tab === 'coverage3d') {
+    const frame = document.getElementById('coverage3d-frame');
+    if (!frame.dataset.loaded) {
+      frame.src = '/static/coverage-3d.html';
+      frame.dataset.loaded = '1';
+    }
+  }
   if (tab === 'settings') { loadPromptConfig(); renderShowFormat(); }
 }
 

@@ -43,7 +43,7 @@ PORT = "5000"
 
 [deployment]
 deploymentTarget = "gce"
-run = ["bash", "start.sh"]
+run = ["bash", "-c", "NOCTUA_ENV=prod bash start.sh"]
 build = ["bash", "-c", "pip install -e . 2>/dev/null; playwright install chromium"]
 
 [workflows]
