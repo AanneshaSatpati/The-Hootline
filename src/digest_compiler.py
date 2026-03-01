@@ -146,8 +146,21 @@ def _summarize_all_segments(
     """
     from src.llm_client import call_summarize
     from src.exceptions import LLMAPIError
+    from src import database
 
     prompt_config = get_prompt_config(show)
+    # Check for prompt overrides from the learning system
+    try:
+        db_path = show.db_path if show else None
+        overrides = database.get_prompt_overrides(db_path=db_path)
+        if "digest_system" in overrides:
+            prompt_config["system_prompt"] = overrides["digest_system"]
+            logger.info("Using prompt override for digest_system")
+        if "digest_preamble" in overrides:
+            prompt_config["podcast_preamble"] = overrides["digest_preamble"]
+            logger.info("Using prompt override for digest_preamble")
+    except Exception as e:
+        logger.warning("Failed to load prompt overrides: %s", e)
     system_prompt = prompt_config["system_prompt"].format(podcast_name=podcast_name)
 
     # Build the prompt with all segments
@@ -191,16 +204,31 @@ def _summarize_all_segments(
         "Use the exact header format shown (## SEGMENT N: Topic) for each segment.\n\n"
         + "\n\n---\n\n".join(parts)
         + "\n\n---RSS_SUMMARY---\n"
-        "Finally, after the delimiter above, write a single sentence (~15 words) "
+        "After the delimiter above, write a single sentence (~15 words) "
         "summarizing what this episode covers. No quotes, no preamble — just the sentence.\n\n"
         f"Article titles for reference:\n{titles_text}"
+        "\n\n---QUALITY_REPORT---\n"
+        "After the delimiter above, evaluate the digest you just wrote and return a JSON block "
+        "with this exact structure:\n"
+        '{"overall_score": 0-100, "issues": [{"type": "generic_prose" | "topic_bleed" | '
+        '"repetition" | "missing_thread" | "thin_segment", "topic": "segment name or null", '
+        '"description": "one sentence describing the issue"}], '
+        '"thread_detected": true/false, '
+        '"thread_description": "what the common thread is, or null"}\n\n'
+        "Scoring guide:\n"
+        "- Start at 100\n"
+        "- Deduct 15 for each thin segment (under 50% of word budget)\n"
+        "- Deduct 10 for each instance of generic/vague prose\n"
+        "- Deduct 10 for topic bleed (content clearly belongs in a different segment)\n"
+        "- Deduct 20 if no common thread is detectable across segments\n"
+        "- Deduct 5 for each repeated fact or story across segments\n"
     )
 
     try:
         response = call_summarize(
             system=system_prompt,
             user_message=user_message,
-            max_tokens=total_word_budget * 3 + 100,
+            max_tokens=total_word_budget * 3 + 500,
             temperature=0.3,
             timeout=120,
         )
@@ -208,9 +236,22 @@ def _summarize_all_segments(
         logger.warning("Single-call summarization failed: %s — using raw fallback", e)
         return None
 
-    # Parse the response into per-segment texts and RSS summary
+    # Parse the response into per-segment texts, RSS summary, and quality report
     segment_texts: dict[str, str] = {}
     rss_summary = ""
+    quality_report: dict = {}
+
+    # Split off quality report first
+    if "---QUALITY_REPORT---" in response:
+        response, qr_part = response.split("---QUALITY_REPORT---", 1)
+        qr_text = qr_part.strip()
+        try:
+            quality_report = json.loads(qr_text)
+            logger.info("Quality report: score=%s, issues=%d",
+                        quality_report.get("overall_score", "?"),
+                        len(quality_report.get("issues", [])))
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse quality report JSON: %s", qr_text[:200])
 
     # Split off RSS summary
     if "---RSS_SUMMARY---" in response:
@@ -242,12 +283,13 @@ def _summarize_all_segments(
         segment_texts[current_topic] = "\n".join(current_lines).strip()
 
     logger.info(
-        "Single API call produced %d segment summaries (RSS summary: %s)",
+        "Single API call produced %d segment summaries (RSS summary: %s, quality report: %s)",
         len(segment_texts),
         "yes" if rss_summary else "no",
+        "yes" if quality_report else "no",
     )
 
-    return segment_texts, rss_summary
+    return segment_texts, rss_summary, quality_report
 
 
 def _parse_minutes(topic: Topic) -> int:
@@ -304,10 +346,10 @@ def _raw_fallback_segment(articles: list[Article], word_budget: int) -> str:
 def _compile_text(
     digest: DailyDigest, date_str: str, podcast_name: str = "The Hootline",
     show_format: ShowFormat | None = None, show_config: ShowConfig | None = None,
-) -> tuple[str, dict[str, int], dict[str, list[str]], str]:
+) -> tuple[str, dict[str, int], dict[str, list[str]], str, dict]:
     """Compile articles into a segment-structured markdown document with AI summaries.
 
-    Returns (text, segment_counts, segment_sources, rss_summary).
+    Returns (text, segment_counts, segment_sources, rss_summary, quality_report).
     """
     # Resolve segment config: use show format if provided, else global defaults
     if show_format:
@@ -353,8 +395,9 @@ def _compile_text(
         grouped, segment_word_budgets, format_segment_order,
         podcast_name=podcast_name, show=show_config,
     )
+    quality_report = {}
     if ai_result:
-        ai_segments, rss_summary = ai_result
+        ai_segments, rss_summary, quality_report = ai_result
     else:
         ai_segments = {}
         rss_summary = f"Your daily knowledge briefing from {podcast_name}."
@@ -421,7 +464,7 @@ def _compile_text(
         )
         text = text[:MAX_SOURCE_CHARS - 100] + "\n\n[Document truncated to fit source limit.]"
 
-    return text, segment_counts, segment_sources, rss_summary
+    return text, segment_counts, segment_sources, rss_summary, quality_report
 
 
 def compile(digest: DailyDigest, show: ShowConfig | None = None) -> CompiledDigest:
@@ -443,7 +486,7 @@ def compile(digest: DailyDigest, show: ShowConfig | None = None) -> CompiledDige
     show_format = show.format if show else None
 
     try:
-        text, segment_counts, segment_sources, rss_summary = _compile_text(
+        text, segment_counts, segment_sources, rss_summary, quality_report = _compile_text(
             digest, date_display, podcast_name=podcast_name,
             show_format=show_format, show_config=show,
         )
@@ -459,6 +502,7 @@ def compile(digest: DailyDigest, show: ShowConfig | None = None) -> CompiledDige
             rss_summary=rss_summary,
             segment_counts=segment_counts,
             segment_sources=segment_sources,
+            quality_report=quality_report,
         )
 
         logger.info(

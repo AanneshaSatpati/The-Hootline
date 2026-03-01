@@ -9,6 +9,7 @@ import requests
 
 from config import settings
 from src.exceptions import AudioTranscriptionError
+from src.show_bible_context import SHOW_BIBLE_RULES
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = [5, 10, 20]
 FILE_POLL_INTERVAL = 5  # seconds
 FILE_POLL_TIMEOUT = 120  # seconds
-GENERATE_TIMEOUT = 180  # seconds
+GENERATE_TIMEOUT = 300  # seconds
 
 
 def _api_key() -> str:
@@ -115,23 +116,39 @@ def upload_to_gemini(mp3_path: Path) -> str:
 
 
 def analyze_audio(file_uri: str, segment_order: list[str],
-                  segment_durations: dict[str, int] | None = None) -> dict[str, int]:
-    """Send audio to Gemini for topic-level word count analysis.
+                  segment_durations: dict[str, int] | None = None,
+                  db_path=None) -> dict:
+    """Send audio to Gemini for topic-level word count + coverage/tone analysis.
 
-    Returns dict mapping topic names to approximate spoken word counts.
+    Returns dict with keys: word_counts, coverage_gaps, tone_findings,
+    runtime_seconds, both_hosts_present.
     """
     key = _api_key()
+    wpm = 150  # words per minute
 
-    # Build topic list for prompt
+    # Check for prompt overrides from the learning system
+    prompt_overrides = {}
+    try:
+        from src import database
+        prompt_overrides = database.get_prompt_overrides(db_path=db_path)
+    except Exception:
+        pass
+
+    # Build topic list with word budgets for prompt
     topic_lines = []
+    budget_lines = []
     for i, name in enumerate(segment_order, 1):
-        mins = segment_durations.get(name, 1) if segment_durations else "?"
+        mins = segment_durations.get(name, 1) if segment_durations else 1
+        word_budget = mins * wpm
         topic_lines.append(f"{i}. {name} ({mins} min budget)")
+        budget_lines.append(f"- {name}: {word_budget} words (~{mins} min)")
     topics_text = "\n".join(topic_lines)
+    budgets_text = "\n".join(budget_lines)
 
-    system_prompt = (
-        "You are an audio analyst. You listen to podcast episodes and count "
-        "how many words were spoken about each topic. Be precise and thorough."
+    system_prompt = prompt_overrides.get(
+        "transcription_system",
+        "You are an audio analyst. You listen to podcast episodes and perform "
+        "detailed word count, coverage gap, and tone/framing analysis. Be precise and thorough."
     )
 
     user_prompt = (
@@ -139,12 +156,42 @@ def analyze_audio(file_uri: str, segment_order: list[str],
         "The podcast has two conversational hosts discussing news and current events.\n"
         f"It covers these topics (in approximate order):\n{topics_text}\n\n"
         "For each topic, count approximately how many words were spoken about it by both hosts combined.\n"
-        "Topics may blend during natural transitions — assign words to whichever topic is the primary focus.\n"
-        "Exclude intro banter (~1 minute welcome/weather) and outro (~1 minute farewell) from any topic count.\n\n"
-        "Return ONLY a JSON object mapping each topic name to its word count. "
-        "Use the exact topic names listed above as keys. "
-        "Set count to 0 for topics not discussed at all.\n"
-        "Example format: {\"Latest in Tech\": 523, \"World Politics\": 412, ...}"
+        "Topics may blend during natural transitions — assign words to whichever topic is the primary focus.\n\n"
+        "IMPORTANT distinctions:\n"
+        "- Exclude intro banter (~1 minute welcome/weather) and outro (~1 minute farewell) from ALL counts.\n"
+        "- Exclude general chatter, transitions between topics, jokes, tangents, and filler conversation from ALL counts.\n"
+        '- "Misc" should ONLY count words about actual miscellaneous news stories or articles — NOT banter, chatter, or off-topic conversation.\n'
+        "- Only count words that are substantively discussing a specific news story, article, or topic.\n\n"
+        "COVERAGE GAP ANALYSIS:\n"
+        "After counting words, compare each topic's actual word count against its target budget.\n"
+        "Flag any topic where actual is more than 30% above or below budget.\n"
+        f"Target budgets:\n{budgets_text}\n\n"
+        "TONE & FRAMING ANALYSIS:\n"
+        f"{SHOW_BIBLE_RULES}\n"
+        "Evaluate the audio against these show rules:\n"
+        '1. INDIA INSIDER RULE: When covering Indian Politics, Indian Cricket, or Badminton, '
+        'the host must speak as someone from India — not as a foreign correspondent. '
+        'Flag any "in India, people believe..." or outsider-framing constructions as india_outsider_language (critical).\n'
+        "2. TWO HOST RULE: Both hosts must be present and speaking in every segment. "
+        "Flag any segment that sounds like a solo monologue as missing_second_host (warning).\n"
+        "3. SORKIN RULE: Dialogue should be fast, witty, and warm. "
+        "Flag any segment that sounds stiff, robotic, or like a news reader as sorkin_violation (warning).\n\n"
+        "RUNTIME: Estimate total runtime in seconds from the audio.\n\n"
+        "Return ONLY a JSON object with this exact structure:\n"
+        "{\n"
+        '  "word_counts": {"Latest in Tech": 523, ...all 14 topics},\n'
+        '  "coverage_gaps": [{"topic": "...", "budget_words": 750, "actual_words": 400, '
+        '"gap_percent": 47, "direction": "under"}],\n'
+        '  "tone_findings": [{"topic": "...", "issue": "correspondent_framing" | '
+        '"missing_second_host" | "sorkin_violation" | "india_outsider_language", '
+        '"description": "...", "severity": "warning" | "critical"}],\n'
+        '  "runtime_seconds": 0,\n'
+        '  "both_hosts_present": true\n'
+        "}\n"
+        "Use the exact topic names listed above as keys in word_counts. "
+        "Set count to 0 for topics not discussed at all. "
+        "coverage_gaps should only include topics with >30% deviation. "
+        "tone_findings can be empty if no issues found."
     )
 
     payload = {
@@ -156,9 +203,10 @@ def analyze_audio(file_uri: str, segment_order: list[str],
             ]
         }],
         "generationConfig": {
-            "maxOutputTokens": 65536,
+            "maxOutputTokens": 16384,
             "temperature": 0.0,
             "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 8192},
         },
     }
 
@@ -192,7 +240,13 @@ def analyze_audio(file_uri: str, segment_order: list[str],
             if finish_reason and finish_reason not in ("STOP", ""):
                 logger.warning("Gemini finish reason: %s", finish_reason)
 
-            text = candidate["content"]["parts"][0]["text"]
+            # Find the text part (skip thinking parts)
+            text = None
+            for part in candidate["content"]["parts"]:
+                if "text" in part:
+                    text = part["text"]
+            if text is None:
+                raise AudioTranscriptionError("No text part in Gemini response")
             logger.info("Raw Gemini response (%d chars): %s", len(text), text[:500])
 
             # Parse JSON response — repair truncated output if needed
@@ -200,7 +254,6 @@ def analyze_audio(file_uri: str, segment_order: list[str],
                 result = json.loads(text)
             except json.JSONDecodeError:
                 if finish_reason == "MAX_TOKENS":
-                    # Try to repair: add missing closing brace
                     repaired = text.rstrip().rstrip(",") + "}"
                     logger.warning("Attempting JSON repair for MAX_TOKENS truncation")
                     result = json.loads(repaired)
@@ -209,20 +262,33 @@ def analyze_audio(file_uri: str, segment_order: list[str],
             if not isinstance(result, dict):
                 raise AudioTranscriptionError(f"Expected dict, got {type(result)}: {text[:200]}")
 
-            # Validate and normalize: ensure all topics present
+            # Handle both old format (flat word counts) and new format (nested)
+            if "word_counts" in result:
+                word_counts = result["word_counts"]
+            else:
+                # Old format: the entire dict is word counts
+                word_counts = result
+                result = {"word_counts": word_counts, "coverage_gaps": [],
+                          "tone_findings": [], "runtime_seconds": 0,
+                          "both_hosts_present": True}
+
+            # Validate and normalize word counts: ensure all topics present
             normalized = {}
             for name in segment_order:
-                # Try exact match first, then case-insensitive
-                if name in result:
-                    normalized[name] = int(result[name])
+                if name in word_counts:
+                    normalized[name] = int(word_counts[name])
                 else:
-                    lower_map = {k.lower(): v for k, v in result.items()}
+                    lower_map = {k.lower(): v for k, v in word_counts.items()}
                     normalized[name] = int(lower_map.get(name.lower(), 0))
 
+            result["word_counts"] = normalized
             total = sum(normalized.values())
-            logger.info("Audio analysis complete: %d total words across %d topics",
-                        total, sum(1 for v in normalized.values() if v > 0))
-            return normalized
+            logger.info("Audio analysis complete: %d total words across %d topics, "
+                        "%d coverage gaps, %d tone findings",
+                        total, sum(1 for v in normalized.values() if v > 0),
+                        len(result.get("coverage_gaps", [])),
+                        len(result.get("tone_findings", [])))
+            return result
 
         except (requests.exceptions.HTTPError, json.JSONDecodeError, KeyError, ValueError) as e:
             last_error = str(e)
@@ -250,16 +316,19 @@ def delete_from_gemini(file_name: str) -> None:
 
 
 def transcribe_episode(mp3_path: Path, segment_order: list[str],
-                       segment_durations: dict[str, int] | None = None) -> dict[str, int]:
-    """Full pipeline: upload audio → analyze topics → cleanup → return word counts.
+                       segment_durations: dict[str, int] | None = None,
+                       db_path=None) -> dict:
+    """Full pipeline: upload audio → analyze topics → cleanup → return full analysis.
 
     Args:
         mp3_path: Path to the MP3 file.
         segment_order: List of topic names in order.
         segment_durations: Optional dict of topic name → allocated minutes.
+        db_path: Optional database path for loading prompt overrides.
 
     Returns:
-        Dict mapping topic names to spoken word counts.
+        Full analysis dict with keys: word_counts, coverage_gaps, tone_findings,
+        runtime_seconds, both_hosts_present.
 
     Raises:
         AudioTranscriptionError: If any step fails.
@@ -270,7 +339,7 @@ def transcribe_episode(mp3_path: Path, segment_order: list[str],
     file_name = None
     try:
         file_name, file_uri = upload_to_gemini(mp3_path)
-        result = analyze_audio(file_uri, segment_order, segment_durations)
+        result = analyze_audio(file_uri, segment_order, segment_durations, db_path=db_path)
         return result
     except AudioTranscriptionError:
         raise

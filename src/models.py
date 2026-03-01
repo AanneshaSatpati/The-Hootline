@@ -49,6 +49,7 @@ class CompiledDigest:
     email_count: int = 0
     segment_counts: dict[str, int] = field(default_factory=dict)
     segment_sources: dict[str, list[str]] = field(default_factory=dict)
+    quality_report: dict = field(default_factory=dict)
 
 
 @dataclass

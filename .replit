@@ -4,7 +4,7 @@ hidden = [".config", ".git", "__pycache__", ".venv"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["ffmpeg-full", "gitFull", "libxcrypt", "playwright-driver", "xcodebuild", "zlib"]
+packages = ["ffmpeg-full", "gitFull", "libxcrypt", "xcodebuild", "zlib"]
 
 [[ports]]
 localPort = 5000
@@ -48,7 +48,7 @@ PORT = "5000"
 [deployment]
 deploymentTarget = "gce"
 run = ["bash", "-c", "NOCTUA_ENV=prod bash start.sh"]
-build = ["bash", "-c", "pip install -e . 2>/dev/null; playwright install chromium"]
+build = ["bash", "-c", "pip install -e . 2>/dev/null"]
 
 [workflows]
 runButton = "Project"

@@ -60,9 +60,47 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             published_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            episode_date TEXT NOT NULL,
+            job TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            topic TEXT,
+            finding TEXT NOT NULL,
+            data TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            episode_date TEXT NOT NULL,
+            type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            current_value TEXT,
+            suggested_value TEXT,
+            finding_ids TEXT NOT NULL DEFAULT '[]',
+            reviewed_at TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS prompt_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prompt_key TEXT UNIQUE NOT NULL,
+            original_value TEXT NOT NULL,
+            override_value TEXT NOT NULL,
+            approved_from_suggestion_id INTEGER,
+            applied_at TEXT NOT NULL,
+            FOREIGN KEY (approved_from_suggestion_id) REFERENCES suggestions(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
         CREATE INDEX IF NOT EXISTS idx_episodes_date ON episodes(date);
         CREATE INDEX IF NOT EXISTS idx_runs_started ON pipeline_runs(started_at);
+        CREATE INDEX IF NOT EXISTS idx_findings_date ON findings(episode_date);
+        CREATE INDEX IF NOT EXISTS idx_suggestions_date ON suggestions(episode_date);
+        CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
     """)
     # Migrate: add rss_summary column if missing (existing DBs)
     try:
@@ -97,6 +135,16 @@ def _create_tables(conn: sqlite3.Connection) -> None:
     # Migrate: add audio_analysis_status column to episodes if missing
     try:
         conn.execute("ALTER TABLE episodes ADD COLUMN audio_analysis_status TEXT NOT NULL DEFAULT 'none'")
+    except sqlite3.OperationalError:
+        pass
+    # Migrate: add quality_report column to digests if missing
+    try:
+        conn.execute("ALTER TABLE digests ADD COLUMN quality_report TEXT NOT NULL DEFAULT '{}'")
+    except sqlite3.OperationalError:
+        pass
+    # Migrate: add audio_analysis_full column to episodes if missing
+    try:
+        conn.execute("ALTER TABLE episodes ADD COLUMN audio_analysis_full TEXT NOT NULL DEFAULT '{}'")
     except sqlite3.OperationalError:
         pass
     conn.commit()
@@ -382,15 +430,24 @@ def list_episodes(limit: int = 0, db_path: Path | None = None) -> list[dict]:
 
 def update_audio_analysis(date: str, audio_segment_words: dict[str, int],
                           status: str = "complete",
+                          audio_analysis_full: dict | None = None,
                           db_path: Path | None = None) -> None:
     """Update the audio transcription results for an episode."""
     conn = _get_connection(db_path)
     try:
-        conn.execute(
-            "UPDATE episodes SET audio_segment_words = ?, audio_analysis_status = ? "
-            "WHERE date = ?",
-            (json.dumps(audio_segment_words), status, date),
-        )
+        if audio_analysis_full is not None:
+            conn.execute(
+                "UPDATE episodes SET audio_segment_words = ?, audio_analysis_status = ?, "
+                "audio_analysis_full = ? WHERE date = ?",
+                (json.dumps(audio_segment_words), status,
+                 json.dumps(audio_analysis_full), date),
+            )
+        else:
+            conn.execute(
+                "UPDATE episodes SET audio_segment_words = ?, audio_analysis_status = ? "
+                "WHERE date = ?",
+                (json.dumps(audio_segment_words), status, date),
+            )
         conn.commit()
         logger.info("Updated audio analysis for %s (status=%s)", date, status)
     finally:
@@ -515,5 +572,234 @@ def get_run(run_id: str, db_path: Path | None = None) -> dict | None:
         d = dict(row)
         d["steps_log"] = json.loads(d["steps_log"])
         return d
+    finally:
+        conn.close()
+
+
+# --- Learning System ---
+
+def save_quality_report(date: str, quality_report: dict,
+                        db_path: Path | None = None) -> None:
+    """Save quality report JSON to the digests table."""
+    conn = _get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE digests SET quality_report = ? WHERE date = ?",
+            (json.dumps(quality_report), date),
+        )
+        conn.commit()
+        logger.info("Saved quality report for %s", date)
+    finally:
+        conn.close()
+
+
+def get_quality_report(date: str, db_path: Path | None = None) -> dict:
+    """Get quality report for a digest date."""
+    conn = _get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT quality_report FROM digests WHERE date = ?", (date,)
+        ).fetchone()
+        if row and row["quality_report"]:
+            return json.loads(row["quality_report"])
+        return {}
+    finally:
+        conn.close()
+
+
+def get_audio_analysis_full(date: str, db_path: Path | None = None) -> dict:
+    """Get full audio analysis for an episode date."""
+    conn = _get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT audio_analysis_full FROM episodes WHERE date = ?", (date,)
+        ).fetchone()
+        if row and row["audio_analysis_full"]:
+            return json.loads(row["audio_analysis_full"])
+        return {}
+    finally:
+        conn.close()
+
+
+def save_findings(episode_date: str, findings: list[dict],
+                  db_path: Path | None = None) -> list[int]:
+    """Save findings to DB, return list of inserted IDs."""
+    now = datetime.now(UTC).isoformat()
+    ids = []
+    conn = _get_connection(db_path)
+    try:
+        for f in findings:
+            cursor = conn.execute(
+                """INSERT INTO findings (episode_date, job, severity, topic, finding, data, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (episode_date, f["job"], f["severity"], f.get("topic"),
+                 f["finding"], json.dumps(f.get("data", {})), now),
+            )
+            ids.append(cursor.lastrowid)
+        conn.commit()
+        logger.info("Saved %d findings for %s", len(ids), episode_date)
+        return ids
+    finally:
+        conn.close()
+
+
+def save_suggestions(episode_date: str, suggestions: list[dict],
+                     db_path: Path | None = None) -> None:
+    """Save suggestions to DB."""
+    now = datetime.now(UTC).isoformat()
+    conn = _get_connection(db_path)
+    try:
+        for s in suggestions:
+            conn.execute(
+                """INSERT INTO suggestions
+                   (episode_date, type, status, title, detail, current_value,
+                    suggested_value, finding_ids, created_at)
+                   VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)""",
+                (episode_date, s["type"], s["title"], s["detail"],
+                 s.get("current_value"), s.get("suggested_value"),
+                 json.dumps(s.get("finding_ids", [])), now),
+            )
+        conn.commit()
+        logger.info("Saved %d suggestions for %s", len(suggestions), episode_date)
+    finally:
+        conn.close()
+
+
+def get_findings(episode_date: str, db_path: Path | None = None) -> list[dict]:
+    """Get all findings for an episode date."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM findings WHERE episode_date = ? ORDER BY id",
+            (episode_date,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["data"] = json.loads(d["data"])
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_suggestions(episode_date: str | None = None, status: str | None = None,
+                    db_path: Path | None = None) -> list[dict]:
+    """Get suggestions, optionally filtered by episode date and/or status."""
+    conn = _get_connection(db_path)
+    try:
+        conditions = []
+        params = []
+        if episode_date:
+            conditions.append("episode_date = ?")
+            params.append(episode_date)
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+        rows = conn.execute(
+            f"SELECT * FROM suggestions {where} ORDER BY id DESC",
+            params,
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["finding_ids"] = json.loads(d["finding_ids"])
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def update_suggestion_status(suggestion_id: int, status: str,
+                             db_path: Path | None = None) -> bool:
+    """Update a suggestion's status. Returns True if updated."""
+    conn = _get_connection(db_path)
+    try:
+        cursor = conn.execute(
+            "UPDATE suggestions SET status = ?, reviewed_at = ? WHERE id = ?",
+            (status, datetime.now(UTC).isoformat(), suggestion_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def save_prompt_override(prompt_key: str, original_value: str, override_value: str,
+                         suggestion_id: int | None = None,
+                         db_path: Path | None = None) -> None:
+    """Save or update a prompt override."""
+    conn = _get_connection(db_path)
+    try:
+        conn.execute(
+            """INSERT INTO prompt_overrides
+               (prompt_key, original_value, override_value, approved_from_suggestion_id, applied_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(prompt_key) DO UPDATE SET
+               override_value=excluded.override_value,
+               approved_from_suggestion_id=excluded.approved_from_suggestion_id,
+               applied_at=excluded.applied_at""",
+            (prompt_key, original_value, override_value, suggestion_id,
+             datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+        logger.info("Saved prompt override for key '%s'", prompt_key)
+    finally:
+        conn.close()
+
+
+def get_prompt_overrides(db_path: Path | None = None) -> dict[str, str]:
+    """Load active prompt overrides from DB. Returns {prompt_key: override_value}."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT prompt_key, override_value FROM prompt_overrides"
+        ).fetchall()
+        return {r["prompt_key"]: r["override_value"] for r in rows}
+    finally:
+        conn.close()
+
+
+def get_prompt_overrides_full(db_path: Path | None = None) -> list[dict]:
+    """Get full prompt override records."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM prompt_overrides ORDER BY applied_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_episode_dates_with_findings(db_path: Path | None = None) -> list[str]:
+    """Get distinct episode dates that have findings, most recent first."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT episode_date FROM findings ORDER BY episode_date DESC"
+        ).fetchall()
+        return [r["episode_date"] for r in rows]
+    finally:
+        conn.close()
+
+
+def get_recent_coverage_gap_trends(days: int = 7,
+                                    db_path: Path | None = None) -> list[dict]:
+    """Get coverage gap trends over recent days for weekly analysis."""
+    conn = _get_connection(db_path)
+    try:
+        rows = conn.execute(
+            """SELECT topic, COUNT(*) as count
+               FROM findings
+               WHERE job = 'coverage_gap'
+               AND created_at >= datetime('now', ?)
+               AND topic IS NOT NULL
+               GROUP BY topic
+               ORDER BY count DESC""",
+            (f"-{days} days",),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

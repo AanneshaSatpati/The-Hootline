@@ -17,22 +17,6 @@ class DigestCompileError(NoctuaError):
     """Raised when compiling the daily digest fails."""
 
 
-class NotebookLMError(NoctuaError):
-    """Raised when NotebookLM automation fails."""
-
-
-class SelectorNotFoundError(NotebookLMError):
-    """Raised when a UI element cannot be found with any selector strategy."""
-
-
-class AudioGenerationTimeoutError(NotebookLMError):
-    """Raised when audio generation exceeds the timeout."""
-
-
-class SessionExpiredError(NotebookLMError):
-    """Raised when the Google session has expired and manual re-login is needed."""
-
-
 class EpisodeProcessError(NoctuaError):
     """Raised when processing a downloaded episode fails."""
 

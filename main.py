@@ -168,6 +168,25 @@ async def _scheduler() -> None:
         logger.info("Scheduler: triggering daily generation for all shows.")
         for state in _show_states.values():
             asyncio.create_task(_run_generation(state))
+        # Weekly trend analysis on Sundays
+        if datetime.now(UTC).weekday() == 6:  # Sunday
+            asyncio.create_task(_run_weekly_trends())
+
+
+async def _run_weekly_trends() -> None:
+    """Run weekly trend analysis for all shows."""
+    from src.episode_analyzer import run_weekly_trend_analysis
+    loop = asyncio.get_event_loop()
+    for state in _show_states.values():
+        try:
+            result = await loop.run_in_executor(
+                None, run_weekly_trend_analysis, str(state.show.db_path),
+            )
+            if result:
+                gcs_storage.upload_db(state.show.db_path, state.show.show_id)
+                logger.info("Weekly trends for %s: %d suggestions", state.show.show_id, len(result))
+        except Exception as e:
+            logger.error("Weekly trend analysis failed for %s: %s", state.show.show_id, e)
 
 
 @asynccontextmanager
@@ -1183,19 +1202,40 @@ async def api_preparation_digest(show_id: str = Query(default="")):
 
 
 async def _transcribe_episode_background(date: str, mp3_path: Path, show: ShowConfig) -> None:
-    """Run audio transcription in background, save results to DB."""
+    """Run audio transcription in background, save results to DB, then run learning analysis."""
     from src.audio_transcriber import transcribe_episode
     try:
         database.set_audio_analysis_status(date, "running", db_path=show.db_path)
         segment_order = show.format.segment_order
         segment_durations = show.format.segment_durations
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, transcribe_episode, mp3_path, segment_order, segment_durations
+        analysis = await loop.run_in_executor(
+            None, lambda: transcribe_episode(mp3_path, segment_order, segment_durations, db_path=show.db_path)
         )
-        database.update_audio_analysis(date, result, db_path=show.db_path)
+        # Extract word_counts for backward compat, store full analysis
+        word_counts = analysis.get("word_counts", analysis)
+        database.update_audio_analysis(
+            date, word_counts, audio_analysis_full=analysis, db_path=show.db_path,
+        )
         gcs_storage.upload_db(show.db_path, show.show_id)
-        logger.info("Audio transcription complete for %s: %s", date, result)
+        logger.info("Audio transcription complete for %s: %d topics, %d gaps, %d tone findings",
+                     date, sum(1 for v in word_counts.values() if v > 0),
+                     len(analysis.get("coverage_gaps", [])),
+                     len(analysis.get("tone_findings", [])))
+
+        # Run learning system analysis
+        try:
+            from src.episode_analyzer import analyze_episode
+            quality_report = database.get_quality_report(date, db_path=show.db_path)
+            learn_result = await loop.run_in_executor(
+                None, analyze_episode, date, analysis, quality_report, str(show.db_path),
+            )
+            gcs_storage.upload_db(show.db_path, show.show_id)
+            logger.info("Learning analysis complete for %s: %d findings, %d suggestions",
+                        date, learn_result["findings_count"], learn_result["suggestions_count"])
+        except Exception as e:
+            logger.error("Learning analysis failed for %s: %s", date, e)
+
     except Exception as e:
         logger.error("Audio transcription failed for %s: %s", date, e)
         database.set_audio_analysis_status(date, "failed", db_path=show.db_path)
@@ -1233,6 +1273,8 @@ async def api_publish_episode(date: str = Form(""), show_id: str = Form("")):
         force=True,
         db_path=show.db_path,
     )
+    if digest.quality_report:
+        database.save_quality_report(digest.date, digest.quality_report, db_path=show.db_path)
 
     try:
         metadata = episode_manager.process(mp3_path, digest.topics_summary, digest.rss_summary, show=show)
@@ -1316,6 +1358,121 @@ async def api_transcription_status(date: str = Query(""), show_id: str = Query("
     status = ep.get("audio_analysis_status", "none") if ep else "none"
     audio_words = json.loads(ep.get("audio_segment_words") or "{}") if ep else {}
     return JSONResponse({"date": date, "status": status, "audio_segment_words": audio_words})
+
+
+# --- Learning System API ---
+
+@app.get("/api/learning/episodes")
+async def api_learning_episodes(show_id: str = Query("")):
+    """List episode dates that have learning findings."""
+    state = _resolve_show(show_id)
+    dates = database.get_episode_dates_with_findings(db_path=state.show.db_path)
+    return JSONResponse({"dates": dates})
+
+
+@app.get("/api/learning/episode/{date}")
+async def api_learning_episode(date: str, show_id: str = Query("")):
+    """Get findings + suggestions + audio analysis for an episode."""
+    state = _resolve_show(show_id)
+    db = state.show.db_path
+    findings = database.get_findings(date, db_path=db)
+    # Get all pending suggestions plus this episode's suggestions
+    ep_suggestions = database.get_suggestions(episode_date=date, db_path=db)
+    pending_other = database.get_suggestions(status="pending", db_path=db)
+    # Merge: ep_suggestions + pending from other dates (deduplicated)
+    seen_ids = {s["id"] for s in ep_suggestions}
+    for s in pending_other:
+        if s["id"] not in seen_ids:
+            ep_suggestions.append(s)
+            seen_ids.add(s["id"])
+    audio_analysis = database.get_audio_analysis_full(date, db_path=db)
+    quality_report = database.get_quality_report(date, db_path=db)
+    # Check egregious
+    is_egregious = False
+    if findings:
+        from src.episode_analyzer import _check_egregious
+        is_egregious = _check_egregious(audio_analysis, quality_report, findings)
+    return JSONResponse({
+        "date": date,
+        "findings": findings,
+        "suggestions": ep_suggestions,
+        "audio_analysis": audio_analysis,
+        "quality_report": quality_report,
+        "is_egregious": is_egregious,
+    })
+
+
+@app.post("/api/learning/approve-suggestion")
+async def api_learning_approve(suggestion_id: int = Form(0), show_id: str = Form("")):
+    """Approve a suggestion. For prompt_edit, writes to prompt_overrides."""
+    state = _resolve_show(show_id)
+    db = state.show.db_path
+    suggestions = database.get_suggestions(db_path=db)
+    suggestion = next((s for s in suggestions if s["id"] == suggestion_id), None)
+    if not suggestion:
+        return JSONResponse({"error": "Suggestion not found."}, status_code=404)
+    if suggestion["status"] != "pending":
+        return JSONResponse({"error": "Suggestion is not pending."}, status_code=400)
+    database.update_suggestion_status(suggestion_id, "approved", db_path=db)
+    # For prompt_edit, save to prompt_overrides
+    if suggestion["type"] == "prompt_edit" and suggestion.get("suggested_value"):
+        prompt_key = _infer_prompt_key(suggestion)
+        if prompt_key:
+            database.save_prompt_override(
+                prompt_key=prompt_key,
+                original_value=suggestion.get("current_value", ""),
+                override_value=suggestion["suggested_value"],
+                suggestion_id=suggestion_id,
+                db_path=db,
+            )
+    gcs_storage.upload_db(db, state.show.show_id)
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/api/learning/dismiss-suggestion")
+async def api_learning_dismiss(suggestion_id: int = Form(0), show_id: str = Form("")):
+    """Dismiss a suggestion."""
+    state = _resolve_show(show_id)
+    updated = database.update_suggestion_status(suggestion_id, "dismissed", db_path=state.show.db_path)
+    if not updated:
+        return JSONResponse({"error": "Suggestion not found."}, status_code=404)
+    gcs_storage.upload_db(state.show.db_path, state.show.show_id)
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/api/learning/snooze-suggestion")
+async def api_learning_snooze(suggestion_id: int = Form(0), show_id: str = Form("")):
+    """Snooze a suggestion."""
+    state = _resolve_show(show_id)
+    updated = database.update_suggestion_status(suggestion_id, "snoozed", db_path=state.show.db_path)
+    if not updated:
+        return JSONResponse({"error": "Suggestion not found."}, status_code=404)
+    gcs_storage.upload_db(state.show.db_path, state.show.show_id)
+    return JSONResponse({"status": "ok"})
+
+
+@app.get("/api/learning/prompt-overrides")
+async def api_learning_overrides(show_id: str = Query("")):
+    """Get current active prompt overrides."""
+    state = _resolve_show(show_id)
+    overrides = database.get_prompt_overrides_full(db_path=state.show.db_path)
+    return JSONResponse({"overrides": overrides})
+
+
+def _infer_prompt_key(suggestion: dict) -> str | None:
+    """Infer which prompt_key a suggestion targets based on its content."""
+    detail = (suggestion.get("detail", "") + " " + suggestion.get("title", "")).lower()
+    if "digest" in detail and "system" in detail:
+        return "digest_system"
+    if "preamble" in detail:
+        return "digest_preamble"
+    if "transcription" in detail or "audio" in detail:
+        if "system" in detail:
+            return "transcription_system"
+        return "transcription_user"
+    if "digest" in detail:
+        return "digest_system"
+    return None
 
 
 @app.post("/api/bump-revision")
@@ -1791,6 +1948,7 @@ DASHBOARD_HTML = """\
   <button class="tab-btn" onclick="switchTab('history', this)">History</button>
   <button class="tab-btn" onclick="switchTab('coverage', this)">Coverage</button>
   <button class="tab-btn" onclick="switchTab('settings', this)">Settings</button>
+  <button class="tab-btn" onclick="switchTab('learning', this)">Learning</button>
 </div>
 
 <div id="tab-latest" class="tab-content active">
@@ -1865,6 +2023,32 @@ DASHBOARD_HTML = """\
       <button class="up-btn" id="save-prompts-btn" onclick="savePromptConfig()">Save</button>
       <button class="btn" onclick="loadPromptConfig()">Reset</button>
       <span id="prompt-save-status" class="upload-status"></span>
+    </div>
+  </div>
+</div>
+
+<div id="tab-learning" class="tab-content">
+  <div style="max-width:900px;margin:0 auto;padding:24px 0;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+      <label style="font-size:13px;color:var(--muted);">Episode:</label>
+      <select id="learn-episode-select" onchange="loadLearningEpisode(this.value)"
+              style="background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;"></select>
+      <span id="learn-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="learn-egregious-banner" style="display:none;background:#b91c1c;color:#fff;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-weight:600;font-size:14px;">
+      This episode flagged as needing attention.
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-label" style="margin-bottom:12px;">Episode Health</div>
+      <div id="learn-health-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-label" style="margin-bottom:12px;">Findings</div>
+      <div id="learn-findings-list" style="font-size:13px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="margin-bottom:12px;">Suggestion Queue</div>
+      <div id="learn-suggestions-list" style="font-size:13px;"></div>
     </div>
   </div>
 </div>
@@ -2123,17 +2307,19 @@ function covDrawRadar() {
   function ang(i) { return (i / nt) * Math.PI * 2 - Math.PI / 2; }
   function pt(i, r) { return { x: cx + Math.cos(ang(i)) * r, y: cy + Math.sin(ang(i)) * r }; }
 
-  // Grid rings at 25%, 50%, 75%, 100%
-  [0.25, 0.5, 0.75, 1.0].forEach(function(pct) {
+  // Grid rings at 25%, 50%, 75%, 100%, 150%
+  [0.25, 0.5, 0.75, 1.0, 1.5].forEach(function(pct) {
     var r = pct * R;
-    ctx.strokeStyle = pct === 1.0 ? '#c4a05250' : '#ffffff0d';
-    ctx.lineWidth = pct === 1.0 ? 1.5 : 0.5;
+    ctx.strokeStyle = pct === 1.0 ? '#c4a05250' : pct === 1.5 ? '#ff444430' : '#ffffff0d';
+    ctx.lineWidth = pct === 1.0 ? 1.5 : pct === 1.5 ? 1 : 0.5;
+    if (pct === 1.5) ctx.setLineDash([4, 4]);
     ctx.beginPath();
     for (var i = 0; i <= nt; i++) {
       var p = pt(i % nt, r);
       i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
     }
     ctx.closePath(); ctx.stroke();
+    if (pct === 1.5) ctx.setLineDash([]);
     if (pct < 1.0) {
       ctx.fillStyle = '#444';
       ctx.font = '8px monospace';
@@ -2148,6 +2334,10 @@ function covDrawRadar() {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText('100%', cx + 4, cy - R - 3);
+  // 150% label
+  ctx.fillStyle = '#ff444480';
+  ctx.font = '8px monospace';
+  ctx.fillText('150%', cx + 4, cy - 1.5 * R - 3);
 
   // Spokes
   for (var i = 0; i < nt; i++) {
@@ -2167,11 +2357,12 @@ function covDrawRadar() {
     else vals.push(digestCov[topics[i].name] || 0); // digest or both default
   }
 
-  // Draw polygon helper
+  // Draw polygon helper — cap visual at 150% so polygon stays visible
+  var VISUAL_CAP = 1.5;
   function drawPolyVals(vArr, color, alpha) {
     ctx.beginPath();
     for (var i = 0; i < nt; i++) {
-      var v = Math.min(vArr[i], 2.5);
+      var v = Math.min(vArr[i], VISUAL_CAP);
       var p = pt(i, v * R);
       i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
     }
@@ -2190,8 +2381,8 @@ function covDrawRadar() {
       aVals.push(audioCov[topics[i].name] || 0);
       dVals.push(digestCov[topics[i].name] || 0);
     }
-    drawPolyVals(aVals, COV_AUDIO, 0.10);
     drawPolyVals(dVals, COV_DIGEST, 0.14);
+    drawPolyVals(aVals, COV_AUDIO, 0.18);
   } else if (mode === 'audio') {
     drawPolyVals(vals, COV_AUDIO, 0.12);
   } else {
@@ -2200,7 +2391,7 @@ function covDrawRadar() {
 
   // Dots at vertices (use primary vals)
   for (var i = 0; i < nt; i++) {
-    var v = Math.min(vals[i], 2.5);
+    var v = Math.min(vals[i], VISUAL_CAP);
     var p = pt(i, v * R);
     var isH = (_cov.hoverTopic === i);
     var dotC = (mode === 'audio') ? COV_AUDIO : (mode === 'digest') ? COV_DIGEST : COV_COLORS[i % COV_COLORS.length];
@@ -2665,6 +2856,7 @@ function switchTab(tab, btn) {
   if (tab === 'history') loadHistory();
   if (tab === 'coverage') { covInit(); }
   if (tab === 'settings') { loadPromptConfig(); renderShowFormat(); }
+  if (tab === 'learning') { initLearning(); }
 }
 
 function copyDigestUrl(url, btn) {
@@ -3278,6 +3470,157 @@ loadShowFormat().then(() => {
   updateHealth();
 });
 setInterval(updateHealth, 10000);
+
+// ===== LEARNING TAB =====
+var _learn = { loaded: false, episodes: [], current: null, data: null };
+
+async function initLearning() {
+  if (_learn.loaded) return;
+  try {
+    var resp = await fetch('/api/learning/episodes?show_id=' + SHOW_ID);
+    var data = await resp.json();
+    _learn.episodes = data.dates || [];
+    var sel = document.getElementById('learn-episode-select');
+    sel.innerHTML = '';
+    if (_learn.episodes.length === 0) {
+      sel.innerHTML = '<option value="">No episodes analyzed yet</option>';
+      document.getElementById('learn-status').textContent = 'Run an episode analysis first.';
+      _learn.loaded = true;
+      return;
+    }
+    _learn.episodes.forEach(function(d) {
+      var opt = document.createElement('option');
+      opt.value = d; opt.textContent = d;
+      sel.appendChild(opt);
+    });
+    _learn.loaded = true;
+    loadLearningEpisode(_learn.episodes[0]);
+  } catch(e) {
+    document.getElementById('learn-status').textContent = 'Error loading episodes.';
+  }
+}
+
+async function loadLearningEpisode(date) {
+  if (!date) return;
+  _learn.current = date;
+  document.getElementById('learn-status').textContent = 'Loading...';
+  try {
+    var resp = await fetch('/api/learning/episode/' + date + '?show_id=' + SHOW_ID);
+    _learn.data = await resp.json();
+    renderLearningHealth();
+    renderLearningFindings();
+    renderLearningSuggestions();
+    var banner = document.getElementById('learn-egregious-banner');
+    banner.style.display = _learn.data.is_egregious ? 'block' : 'none';
+    document.getElementById('learn-status').textContent = '';
+  } catch(e) {
+    document.getElementById('learn-status').textContent = 'Error loading data.';
+  }
+}
+
+function renderLearningHealth() {
+  var grid = document.getElementById('learn-health-grid');
+  var wc = (_learn.data.audio_analysis || {}).word_counts || {};
+  var segs = _showFormat ? _showFormat.segments : [];
+  var html = '';
+  segs.forEach(function(s) {
+    var name = s[0], mins = s[1];
+    var budget = mins * 150;
+    var actual = wc[name] || 0;
+    var pct = budget > 0 ? Math.round((actual / budget) * 100) : 0;
+    var color = '#22c55e'; // green
+    if (actual === 0) color = '#ef4444'; // red
+    else if (Math.abs(pct - 100) > 40) color = '#ef4444'; // red
+    else if (Math.abs(pct - 100) > 15) color = '#f59e0b'; // amber
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;" title="' + actual + '/' + budget + ' words (' + pct + '%)">';
+    html += '<div style="width:10px;height:10px;border-radius:50%;background:' + color + ';display:inline-block;margin-bottom:4px;"></div>';
+    html += '<div style="font-size:12px;color:var(--text);font-weight:500;">' + esc(name) + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted);">' + actual + '/' + budget + '</div>';
+    html += '</div>';
+  });
+  grid.innerHTML = html;
+}
+
+function renderLearningFindings() {
+  var list = document.getElementById('learn-findings-list');
+  var findings = _learn.data.findings || [];
+  if (findings.length === 0) { list.innerHTML = '<p style="color:var(--muted);">No findings for this episode.</p>'; return; }
+  var html = '';
+  findings.forEach(function(f) {
+    var badge = f.severity === 'critical' ? '#ef4444' : f.severity === 'warning' ? '#f59e0b' : '#3b82f6';
+    html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">';
+    html += '<span style="background:' + badge + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap;">' + esc(f.severity.toUpperCase()) + '</span>';
+    html += '<span style="background:var(--bg);color:var(--muted);font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;">' + esc(f.job) + '</span>';
+    if (f.topic) html += '<span style="color:var(--accent);font-size:11px;font-weight:500;white-space:nowrap;">' + esc(f.topic) + '</span>';
+    html += '<span style="color:var(--text);flex:1;">' + esc(f.finding) + '</span>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function renderLearningSuggestions() {
+  var list = document.getElementById('learn-suggestions-list');
+  var suggestions = _learn.data.suggestions || [];
+  if (suggestions.length === 0) { list.innerHTML = '<p style="color:var(--muted);">No suggestions pending.</p>'; return; }
+  var html = '';
+  suggestions.forEach(function(s) {
+    var typeColor = s.type === 'prompt_edit' ? '#8b5cf6' : s.type === 'bad_episode_alert' ? '#ef4444' : s.type === 'subscription_flag' ? '#06b6d4' : '#f59e0b';
+    var statusBadge = s.status === 'approved' ? '<span style="color:#22c55e;font-size:10px;font-weight:600;">APPROVED</span>' :
+                      s.status === 'dismissed' ? '<span style="color:var(--muted);font-size:10px;font-weight:600;">DISMISSED</span>' :
+                      s.status === 'snoozed' ? '<span style="color:#f59e0b;font-size:10px;font-weight:600;">SNOOZED</span>' : '';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+    html += '<span style="background:' + typeColor + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;">' + esc(s.type.replace('_', ' ').toUpperCase()) + '</span>';
+    html += '<span style="font-weight:600;color:var(--text);flex:1;">' + esc(s.title) + '</span>';
+    html += statusBadge;
+    html += '</div>';
+    html += '<div class="learn-detail" id="learn-detail-' + s.id + '" style="display:none;margin:8px 0;padding:8px;background:var(--bg);border-radius:6px;font-size:12px;color:var(--text);">';
+    html += '<p>' + esc(s.detail) + '</p>';
+    if (s.type === 'prompt_edit' && s.current_value && s.suggested_value) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">';
+      html += '<div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Current</div><pre style="font-size:11px;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:4px;border:1px solid #ef444433;">' + esc(s.current_value) + '</pre></div>';
+      html += '<div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Suggested</div><pre style="font-size:11px;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:4px;border:1px solid #22c55e33;">' + esc(s.suggested_value) + '</pre></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center;">';
+    html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);" onclick="toggleLearnDetail(' + s.id + ')">Details</button>';
+    if (s.status === 'pending') {
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:#22c55e;color:#fff;border:none;border-radius:4px;" onclick="learnAction(\'approve\',' + s.id + ',this)">Approve</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);" onclick="learnAction(\'dismiss\',' + s.id + ',this)">Dismiss</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:#f59e0b;" onclick="learnAction(\'snooze\',' + s.id + ',this)">Snooze</button>';
+    }
+    html += '</div>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function toggleLearnDetail(id) {
+  var el = document.getElementById('learn-detail-' + id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function learnAction(action, suggestionId, btn) {
+  btn.disabled = true;
+  try {
+    var resp = await fetch('/api/learning/' + action + '-suggestion', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'suggestion_id=' + suggestionId + '&show_id=' + SHOW_ID
+    });
+    if (resp.ok) {
+      loadLearningEpisode(_learn.current);
+    } else {
+      var data = await resp.json();
+      alert(data.error || 'Action failed');
+      btn.disabled = false;
+    }
+  } catch(e) {
+    alert('Network error');
+    btn.disabled = false;
+  }
+}
 </script>
 </body>
 </html>
