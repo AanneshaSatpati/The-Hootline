@@ -201,10 +201,13 @@ async def lifespan(app: FastAPI):
     # Ensure output directories exist, download DB from GCS, and sync feeds
     for state in _show_states.values():
         show = state.show
-        show.episodes_dir.mkdir(parents=True, exist_ok=True)
-        show.exports_dir.mkdir(parents=True, exist_ok=True)
-        gcs_storage.download_db(show.db_path, show.show_id)
-        feed_builder.sync_catalog_from_db(show=show)
+        try:
+            show.episodes_dir.mkdir(parents=True, exist_ok=True)
+            show.exports_dir.mkdir(parents=True, exist_ok=True)
+            gcs_storage.download_db(show.db_path, show.show_id)
+            feed_builder.sync_catalog_from_db(show=show)
+        except Exception as e:
+            logger.warning("[%s] Non-fatal startup error: %s", show.show_id, e)
 
         if _missed_todays_run(state):
             logger.info("[%s] Startup: missed today's scheduled run — triggering now.", show.show_id)
