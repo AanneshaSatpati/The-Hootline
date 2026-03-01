@@ -74,6 +74,11 @@ def analyze_episode(
 
     Returns summary of findings and suggestions created.
     """
+    # Guard: skip if audio_analysis is empty or missing word_counts
+    if not audio_analysis or not audio_analysis.get("word_counts"):
+        logger.warning("Empty audio_analysis for %s — skipping learning analysis", episode_date)
+        return {"findings_count": 0, "suggestions_count": 0, "is_egregious": False, "skipped": True}
+
     findings = []
 
     # --- Job 1: Coverage Gap Analysis ---
@@ -159,6 +164,10 @@ def analyze_episode(
 def _check_egregious(audio_analysis: dict, quality_report: dict,
                      findings: list[dict]) -> bool:
     """Episode is egregious only if it hits 2+ critical thresholds."""
+    # An episode with no audio data is unknown, not egregious
+    if not audio_analysis or not audio_analysis.get("word_counts"):
+        return False
+
     hits = 0
 
     runtime = audio_analysis.get("runtime_seconds", 0)

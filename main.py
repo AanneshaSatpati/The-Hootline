@@ -3475,7 +3475,7 @@ setInterval(updateHealth, 10000);
 var _learn = { loaded: false, episodes: [], current: null, data: null };
 
 async function initLearning() {
-  if (_learn.loaded) return;
+  if (_learn.loaded && _learn.episodes.length > 0) return;
   try {
     var resp = await fetch('/api/learning/episodes?show_id=' + SHOW_ID);
     var data = await resp.json();
@@ -3485,7 +3485,6 @@ async function initLearning() {
     if (_learn.episodes.length === 0) {
       sel.innerHTML = '<option value="">No episodes analyzed yet</option>';
       document.getElementById('learn-status').textContent = 'Run an episode analysis first.';
-      _learn.loaded = true;
       return;
     }
     _learn.episodes.forEach(function(d) {
@@ -3520,22 +3519,42 @@ async function loadLearningEpisode(date) {
 
 function renderLearningHealth() {
   var grid = document.getElementById('learn-health-grid');
-  var wc = (_learn.data.audio_analysis || {}).word_counts || {};
+  var aa = _learn.data.audio_analysis || {};
+  var wc = aa.word_counts || {};
+  var hasData = Object.keys(wc).length > 0 && Object.values(wc).some(function(v) { return v > 0; });
   var segs = _showFormat ? _showFormat.segments : [];
   var html = '';
   segs.forEach(function(s) {
-    var name = s[0], mins = s[1];
+    var name = s.name, mins = s.minutes;
     var budget = mins * 150;
     var actual = wc[name] || 0;
-    var pct = budget > 0 ? Math.round((actual / budget) * 100) : 0;
-    var color = '#22c55e'; // green
-    if (actual === 0) color = '#ef4444'; // red
-    else if (Math.abs(pct - 100) > 40) color = '#ef4444'; // red
-    else if (Math.abs(pct - 100) > 15) color = '#f59e0b'; // amber
-    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;" title="' + actual + '/' + budget + ' words (' + pct + '%)">';
+    var color, label;
+    if (!hasData) {
+      // No audio analysis data at all — grey "No data" state
+      color = '#6B7280';
+      label = 'No data';
+    } else {
+      var gapPercent = budget > 0 ? Math.round(Math.abs(actual - budget) / budget * 100) : null;
+      if (gapPercent === null) {
+        color = '#6B7280';
+        label = 'No data';
+      } else if (gapPercent <= 15) {
+        color = '#22c55e';
+        label = actual + '/' + budget;
+      } else if (gapPercent <= 40) {
+        color = '#f59e0b';
+        label = actual + '/' + budget;
+      } else {
+        color = '#ef4444';
+        label = actual + '/' + budget;
+      }
+    }
+    var pct = (hasData && budget > 0) ? Math.round((actual / budget) * 100) : 0;
+    var title = hasData ? actual + '/' + budget + ' words (' + pct + '%)' : 'No audio analysis data';
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;" title="' + title + '">';
     html += '<div style="width:10px;height:10px;border-radius:50%;background:' + color + ';display:inline-block;margin-bottom:4px;"></div>';
     html += '<div style="font-size:12px;color:var(--text);font-weight:500;">' + esc(name) + '</div>';
-    html += '<div style="font-size:11px;color:var(--muted);">' + actual + '/' + budget + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted);">' + label + '</div>';
     html += '</div>';
   });
   grid.innerHTML = html;
@@ -3586,9 +3605,9 @@ function renderLearningSuggestions() {
     html += '<div style="display:flex;gap:6px;align-items:center;">';
     html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);" onclick="toggleLearnDetail(' + s.id + ')">Details</button>';
     if (s.status === 'pending') {
-      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:#22c55e;color:#fff;border:none;border-radius:4px;" onclick="learnAction(\'approve\',' + s.id + ',this)">Approve</button>';
-      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);" onclick="learnAction(\'dismiss\',' + s.id + ',this)">Dismiss</button>';
-      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:#f59e0b;" onclick="learnAction(\'snooze\',' + s.id + ',this)">Snooze</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:#22c55e;color:#fff;border:none;border-radius:4px;" onclick="learnAction(&apos;approve&apos;,' + s.id + ',this)">Approve</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);" onclick="learnAction(&apos;dismiss&apos;,' + s.id + ',this)">Dismiss</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:#f59e0b;" onclick="learnAction(&apos;snooze&apos;,' + s.id + ',this)">Snooze</button>';
     }
     html += '</div>';
     html += '</div>';

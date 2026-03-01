@@ -74,7 +74,8 @@
       "Bash(.venv/bin/python -m pytest tests/test_preparation_workflow.py -x -q 2>&1)",
       "Bash(find /home/runner/workspace -name \"requirements*.txt\" -o -name \"setup.py\" -o -name \"pyproject.toml\" | xargs cat 2>/dev/null | head -100)",
       "Bash(find /home/runner/workspace -maxdepth 2 -name \"pyproject.toml\" -o -name \"setup.py\" | grep -v \".venv\\\\|node_modules\\\\|.cache\" | xargs cat 2>/dev/null)",
-      "Bash(ffprobe -v quiet -print_format json -show_format /tmp/feb27.mp3 2>/dev/null | python3 -c \"\nimport sys, json\ninfo = json.load\\(sys.stdin\\)\ndur = float\\(info['format']['duration']\\)\nsize = int\\(info['format']['size']\\)\nprint\\(f'Duration: {dur:.0f}s = {int\\(dur//3600\\):02d}:{int\\(dur%3600//60\\):02d}:{int\\(dur%60\\):02d}'\\)\nprint\\(f'Size: {size/1024/1024:.1f} MB'\\)\nprint\\(f'Bitrate: {int\\(info[\\\\\"format\\\\\"][\\\\\"bit_rate\\\\\"]\\)/1000:.0f} kbps'\\)\n\")"
+      "Bash(ffprobe -v quiet -print_format json -show_format /tmp/feb27.mp3 2>/dev/null | python3 -c \"\nimport sys, json\ninfo = json.load\\(sys.stdin\\)\ndur = float\\(info['format']['duration']\\)\nsize = int\\(info['format']['size']\\)\nprint\\(f'Duration: {dur:.0f}s = {int\\(dur//3600\\):02d}:{int\\(dur%3600//60\\):02d}:{int\\(dur%60\\):02d}'\\)\nprint\\(f'Size: {size/1024/1024:.1f} MB'\\)\nprint\\(f'Bitrate: {int\\(info[\\\\\"format\\\\\"][\\\\\"bit_rate\\\\\"]\\)/1000:.0f} kbps'\\)\n\")",
+      "Bash(python main.py 2>&1 | head -80)"
     ]
   }
 }
