@@ -46,9 +46,9 @@ externalPort = 4200
 PORT = "5000"
 
 [deployment]
-deploymentTarget = "gce"
-run = ["bash", "-c", "NOCTUA_ENV=prod bash start.sh"]
-build = ["bash", "-c", "pip install -e . 2>/dev/null"]
+deploymentTarget = "vm"
+run = ["bash", "-c", "NOCTUA_ENV=prod python -m uvicorn main:app --host 0.0.0.0 --port 5000"]
+build = ["bash", "-c", "pip install hatchling && pip install -e . && python -m playwright install chromium 2>/dev/null || true"]
 
 [workflows]
 runButton = "Project"

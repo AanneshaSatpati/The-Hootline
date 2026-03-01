@@ -8,6 +8,7 @@ import re
 import requests
 import shutil
 import subprocess
+import time
 import zipfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -732,7 +733,7 @@ async def api_history(show_id: str = Query(default="")):
 
 
 @app.get("/api/export-episodes")
-async def api_export_episodes(show_id: str = Query(default="")):
+def api_export_episodes(show_id: str = Query(default="")):
     """Bundle all episode MP3s and digests into a ZIP for download."""
     state = _resolve_show(show_id)
     show = state.show
@@ -741,6 +742,20 @@ async def api_export_episodes(show_id: str = Query(default="")):
 
     episodes_dir.mkdir(parents=True, exist_ok=True)
     exports_dir.mkdir(parents=True, exist_ok=True)
+
+    zip_name = f"{show.show_id}-all-episodes.zip"
+    zip_path = exports_dir / zip_name
+
+    # Serve cached ZIP if it exists and is less than 1 hour old
+    if zip_path.exists():
+        age_seconds = time.time() - zip_path.stat().st_mtime
+        if age_seconds < 3600:
+            logger.info("Serving cached export ZIP (age: %ds)", int(age_seconds))
+            return FileResponse(
+                zip_path,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+            )
 
     # Download any missing MP3s from GCS before zipping
     all_episodes = database.list_episodes(db_path=show.db_path)
@@ -762,9 +777,6 @@ async def api_export_episodes(show_id: str = Query(default="")):
     mp3_files = sorted(episodes_dir.glob("noctua-*.mp3"))
     if not mp3_files:
         return JSONResponse({"error": "No episodes found (download failed)."}, status_code=404)
-
-    zip_name = f"{show.show_id}-all-episodes.zip"
-    zip_path = exports_dir / zip_name
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
         for mp3 in mp3_files:
