@@ -191,6 +191,27 @@ async def _run_weekly_trends() -> None:
             logger.error("Weekly trend analysis failed for %s: %s", state.show.show_id, e)
 
 
+async def _deferred_startup():
+    """Download DBs from GCS and sync feeds in background after app starts serving."""
+    def _init_shows():
+        for state in _show_states.values():
+            show = state.show
+            try:
+                gcs_storage.download_db(show.db_path, show.show_id)
+                feed_builder.sync_catalog_from_db(show=show)
+                logger.info("[%s] Startup init complete.", show.show_id)
+            except Exception as e:
+                logger.warning("[%s] Non-fatal startup error: %s", show.show_id, e)
+
+    await asyncio.to_thread(_init_shows)
+
+    # Check for missed runs after DB is loaded
+    for state in _show_states.values():
+        if _missed_todays_run(state):
+            logger.info("[%s] Startup: missed today's scheduled run — triggering now.", state.show.show_id)
+            asyncio.create_task(_run_generation(state))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the background scheduler and check for missed runs on startup."""
@@ -198,20 +219,13 @@ async def lifespan(app: FastAPI):
     for show_id, show in shows.items():
         _show_states[show_id] = ShowState(show=show)
 
-    # Ensure output directories exist, download DB from GCS, and sync feeds
+    # Ensure output directories exist (fast, non-blocking)
     for state in _show_states.values():
-        show = state.show
-        try:
-            show.episodes_dir.mkdir(parents=True, exist_ok=True)
-            show.exports_dir.mkdir(parents=True, exist_ok=True)
-            gcs_storage.download_db(show.db_path, show.show_id)
-            feed_builder.sync_catalog_from_db(show=show)
-        except Exception as e:
-            logger.warning("[%s] Non-fatal startup error: %s", show.show_id, e)
+        state.show.episodes_dir.mkdir(parents=True, exist_ok=True)
+        state.show.exports_dir.mkdir(parents=True, exist_ok=True)
 
-        if _missed_todays_run(state):
-            logger.info("[%s] Startup: missed today's scheduled run — triggering now.", show.show_id)
-            asyncio.create_task(_run_generation(state))
+    # Start GCS download and feed sync in background (don't block health checks)
+    init_task = asyncio.create_task(_deferred_startup())
 
     task = asyncio.create_task(_scheduler())
     logger.info("Background scheduler started (%02d:%02d UTC). Shows: %s",
@@ -219,6 +233,7 @@ async def lifespan(app: FastAPI):
                 ", ".join(_show_states.keys()))
     yield
     task.cancel()
+    init_task.cancel()
     try:
         await task
     except asyncio.CancelledError:
