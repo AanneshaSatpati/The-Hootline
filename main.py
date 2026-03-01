@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import re
+import requests
 import shutil
 import subprocess
 import zipfile
@@ -738,17 +739,32 @@ async def api_export_episodes(show_id: str = Query(default="")):
     episodes_dir = show.episodes_dir
     exports_dir = show.exports_dir
 
-    if not episodes_dir.exists():
-        return JSONResponse({"error": "No episodes directory found."}, status_code=404)
-
+    episodes_dir.mkdir(parents=True, exist_ok=True)
     exports_dir.mkdir(parents=True, exist_ok=True)
-    zip_name = f"{show.show_id}-all-episodes.zip"
-    zip_path = exports_dir / zip_name
 
-    # Always regenerate so it includes the latest episodes
+    # Download any missing MP3s from GCS before zipping
+    all_episodes = database.list_episodes(db_path=show.db_path)
+    if not all_episodes:
+        return JSONResponse({"error": "No episodes found."}, status_code=404)
+
+    for ep in all_episodes:
+        mp3_name = f"noctua-{ep['date']}.mp3"
+        local_mp3 = episodes_dir / mp3_name
+        if not local_mp3.exists() and ep.get("gcs_url"):
+            try:
+                logger.info("Export: downloading %s from GCS...", mp3_name)
+                resp = requests.get(ep["gcs_url"], timeout=300)
+                resp.raise_for_status()
+                local_mp3.write_bytes(resp.content)
+            except Exception as e:
+                logger.warning("Export: failed to download %s: %s", mp3_name, e)
+
     mp3_files = sorted(episodes_dir.glob("noctua-*.mp3"))
     if not mp3_files:
-        return JSONResponse({"error": "No episodes found."}, status_code=404)
+        return JSONResponse({"error": "No episodes found (download failed)."}, status_code=404)
+
+    zip_name = f"{show.show_id}-all-episodes.zip"
+    zip_path = exports_dir / zip_name
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
         for mp3 in mp3_files:
