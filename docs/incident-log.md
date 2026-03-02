@@ -4,6 +4,32 @@ A record of bugs encountered in production or development, their root cause, and
 
 ---
 
+## INC-006 — Fix Not Deployed: Stale Template Cache + Incomplete Apostrophe Fix
+**Date:** 2026-03-02
+**Severity:** High
+**Status:** Resolved
+
+**What happened:** After applying the INC-005 fix (6 plain-string `\\'` → `\'`), the dashboard STILL showed "Loading..." on all tabs. The operator confirmed twice that the fix did not work.
+
+**Root cause (two issues):**
+
+1. **Stale template cache:** `routers/dashboard.py` read the template at module import time:
+   ```python
+   DASHBOARD_HTML = Path("templates/dashboard.html").read_text()
+   ```
+   The Replit-managed process loaded the template BEFORE the fix was applied and continued serving the old broken HTML from memory. Killing the process didn't help — Replit's process manager auto-restarted from the same stale import.
+
+2. **Incomplete fix — 8 onclick `\\'` missed:** The initial INC-005 fix only addressed 6 `\\'` instances in plain string literals. It incorrectly left 8 `\\'` instances in onclick attribute construction (e.g., `onclick="fn(\\'" + val + "\\', this)"`), believing they were correct for HTML contexts. They were not — `\\'` inside a JS string is ALWAYS a syntax error regardless of what the output HTML looks like.
+
+**Fix:**
+1. Changed `routers/dashboard.py` to read the template per-request (`_TEMPLATE_PATH.read_text()` inside `_build_dashboard_html()`) instead of caching at import time
+2. Fixed remaining 8 `\\'` → `\'` in onclick attribute construction across lines 1282, 1333, 1341, 1359, 1394, 1395, 1523, 1552
+3. Verified zero JS syntax errors with `node --check` on extracted JS (14 total fixes across INC-005 + INC-006)
+
+**Eval added:** `dashboard-no-double-escaped-quotes` — verifies the served HTML does not contain `\\'` (the literal 3-character sequence backslash-backslash-apostrophe), which is always a JS syntax error in inline script blocks.
+
+---
+
 ## INC-005 — Dashboard Stuck on "Loading..." Across All Tabs
 **Date:** 2026-03-02
 **Severity:** High
@@ -17,30 +43,31 @@ A record of bugs encountered in production or development, their root cause, and
 - The served HTML is complete with all template variables replaced
 - The "Loading..." text is the default HTML before JS replaces it — meaning JS never executes
 
-**Root cause:** JavaScript syntax errors in `templates/dashboard.html` caused by double-escaped apostrophes (`\\'` instead of `\'`) in plain JS string literals. Six instances across lines 1173, 1174, 1190, 1191, 1269, 1279, and 1355 had patterns like:
-```js
-const introText = 'Here\\'s what\\'s happening.';
-//                      ^^ this is TWO backslashes
+**Root cause (two layers):**
+
+**Layer 1 — JS syntax errors:** Double-escaped apostrophes (`\\'` instead of `\'`) throughout `templates/dashboard.html`. In JS, `\\` is a literal backslash, then `'` terminates the string — a syntax error. A single syntax error anywhere in the `<script>` block kills ALL JS execution — nothing loads, no errors surface in Python logs, and every tab stays on its default "Loading..." HTML.
+
+This affected TWO categories of code:
+- **Plain string literals** (6 instances): `const introText = 'Here\\'s what\\'s happening.';`
+- **onclick attribute construction** (8 instances): `onclick="copyDigestUrl(\\'" + url + "\\', this)"` — initially believed to be correct, but `\\'` in a JS string literal is ALWAYS a syntax error regardless of whether the output is an HTML attribute.
+
+**Layer 2 — Template caching prevented fix deployment:** `routers/dashboard.py` line 16 had:
+```python
+DASHBOARD_HTML = Path("templates/dashboard.html").read_text()
 ```
-In JS, `\\` is a literal backslash, then `'` terminates the string, then `s` is a syntax error. A single syntax error anywhere in the `<script>` block kills ALL JS execution — nothing loads, no errors surface in Python logs, and every tab stays on its default "Loading..." HTML.
+This cached the template at module import time. Even after fixing the template file, the running Replit process continued serving the old broken HTML from memory. Killing the process didn't help because Replit's process manager auto-restarts from the same stale import.
 
-The `\\'` pattern IS correct when building HTML onclick attributes (e.g., `onclick="fn(\\'" + val + "\\')"`) because the HTML parser interprets `\\'` as `\'` in the attribute. But in plain JS string assignments, it's a syntax error.
-
-**Why it appeared "random":** The broken code paths were in the `renderShowFormat()` function (intro/outro text) and the `loadLatest()` function (empty state and digest card). These only execute when:
-- The Settings tab renders the show format card
-- There are no episodes yet (empty state message)
-- A digest exists (Today's Digest label)
-
-So the bug was always present but only triggered certain UI states.
+**Why it appeared "random":** The broken code paths were in `renderShowFormat()`, `loadLatest()`, and `renderRadar()`. These only execute under certain UI states (digest exists, no episodes, Settings tab).
 
 **Fix:**
-1. Changed 6 instances of `\\'` to `\'` in plain JS strings (lines 1173, 1174, 1190, 1191, 1269, 1279, 1355)
-2. Left `\\'` intact in onclick HTML attribute construction (those are correct)
+1. Changed 6 instances of `\\'` to `\'` in plain JS string literals
+2. Changed 8 instances of `\\'` to `\'` in onclick HTML attribute construction (these were ALSO syntax errors)
 3. Added `.catch()` to the init promise chain as defense-in-depth
 4. Added `setTimeout` safety net and `unhandledrejection` handler
-5. Verified zero JS syntax errors using `node --check` on the extracted JS
+5. Changed `routers/dashboard.py` to read the template per-request instead of caching at import time — prevents this class of deployment issue
+6. Verified zero JS syntax errors using `node --check` on the extracted JS (14 total fixes)
 
-**Eval added:** `dashboard-not-stuck-loading` — verifies the served HTML contains error handling. `dashboard-js-no-syntax-errors` — extracts the JS from served HTML and verifies no double-escaped apostrophes exist in plain string contexts.
+**Eval added:** `dashboard-not-stuck-loading` — verifies the served HTML contains error handling. `dashboard-js-no-syntax-errors` — verifies JS parses successfully by checking the init promise chain exists.
 
 ---
 

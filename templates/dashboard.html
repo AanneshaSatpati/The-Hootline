@@ -1279,7 +1279,7 @@ async function loadLatest() {
     h += '<div class="card"><div class="card-label">Today\'s Digest</div><div class="digest-row"><div>';
     h += '<div class="digest-stats">' + d.article_count + ' articles &middot; ' + (d.email_count||0) + ' emails &middot; ' + d.total_words.toLocaleString() + ' words</div>';
     h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
-    h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
+    h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\'' + d.download_url + '\', this)">Copy URL</button>';
     h += '<a class="dl-btn" href="' + d.download_url.replace('.html', '.md') + '" download title="Download .md">&#x2B07;</a></div></div></div>';
   }
 
@@ -1330,7 +1330,7 @@ function renderPreparation(prep) {
     h += '<div class="card"><div class="card-label">New Digest Ready</div><div class="digest-row"><div>';
     h += '<div class="digest-stats">' + d.article_count + ' articles &middot; ' + (d.email_count||0) + ' emails &middot; ' + d.total_words.toLocaleString() + ' words</div>';
     h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
-    h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
+    h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\'' + d.download_url + '\', this)">Copy URL</button>';
     h += '<a class="dl-btn" href="' + d.download_url + '" download title="Download .md">&#x2B07;</a></div></div></div>';
   }
 
@@ -1338,7 +1338,7 @@ function renderPreparation(prep) {
     // Upload section
     h += '<div class="card"><div class="card-label">Upload Audio</div>';
     h += '<div class="upload-row"><input type="file" id="mp3-file" accept=".mp3,.m4a,.wav,.ogg,.webm">';
-    h += '<button class="up-btn" id="up-btn" onclick="uploadEp(\\'' + prep.date + '\\')">Upload</button></div>';
+    h += '<button class="up-btn" id="up-btn" onclick="uploadEp(\'' + prep.date + '\')">Upload</button></div>';
     h += '<div class="upload-status" id="up-status"></div></div>';
   }
 
@@ -1356,7 +1356,7 @@ function renderPreparation(prep) {
       h += '</div>';
     }
     h += '<div style="margin-top:12px;">';
-    h += '<button class="up-btn" onclick="publishEp(\\'' + prep.date + '\\',' + (prep.existing_episode?'true':'false') + ')">Publish to RSS</button>';
+    h += '<button class="up-btn" onclick="publishEp(\'' + prep.date + '\',' + (prep.existing_episode?'true':'false') + ')">Publish to RSS</button>';
     h += '</div></div>';
   }
 
@@ -1391,8 +1391,8 @@ async function loadRadar(mode, containerId) {
     let h = '<div class="radar-card"><div class="radar-hdr"><div class="card-label">Topic Coverage</div>';
     if (containerId !== 'hist-radar') {
       h += '<div class="radar-toggle">';
-      h += '<button class="' + (mode==='latest'?'active':'') + '" onclick="loadRadar(\\'latest\\',\\'' + containerId + '\\')">Latest</button>';
-      h += '<button class="' + (mode==='cumulative'?'active':'') + '" onclick="loadRadar(\\'cumulative\\',\\'' + containerId + '\\')">All Time</button>';
+      h += '<button class="' + (mode==='latest'?'active':'') + '" onclick="loadRadar(\'latest\',\'' + containerId + '\')">Latest</button>';
+      h += '<button class="' + (mode==='cumulative'?'active':'') + '" onclick="loadRadar(\'cumulative\',\'' + containerId + '\')">All Time</button>';
       h += '</div>';
     }
     h += '</div>';
@@ -1520,7 +1520,7 @@ async function loadHistory() {
     let h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
     h += '<span style="font-size:12px;color:var(--text-dim);">' + thisWeek.length + ' episodes this week &middot; ' + weekMB + ' MB</span>';
     if (thisWeek.length > 0) {
-      h += '<button class="btn" onclick="window.location=\\'' + apiUrl('/api/export-episodes') + '\\'">Export</button>';
+      h += '<button class="btn" onclick="window.location=\'' + apiUrl('/api/export-episodes') + '\'">Export</button>';
     }
     h += '</div>';
 
@@ -1549,7 +1549,7 @@ async function loadHistory() {
       const digestHtmlUrl = '/digests/'+r.date+'.html?show_id='+encodeURIComponent(SHOW_ID);
       const digestMdUrl = '/digests/'+r.date+'.md?show_id='+encodeURIComponent(SHOW_ID);
       const digestC = r.has_digest
-        ? '<span class="digest-btns" style="gap:4px;"><button class="copy-url-btn" style="padding:4px 8px;font-size:11px;" onclick="copyDigestUrl(\\''+digestHtmlUrl+'\\', this)">Copy URL</button><a class="h-link digest" href="'+digestMdUrl+'" download title="Download .md">&#x2B07;</a></span>'
+        ? '<span class="digest-btns" style="gap:4px;"><button class="copy-url-btn" style="padding:4px 8px;font-size:11px;" onclick="copyDigestUrl(\''+digestHtmlUrl+'\', this)">Copy URL</button><a class="h-link digest" href="'+digestMdUrl+'" download title="Download .md">&#x2B07;</a></span>'
         : '<span class="h-badge no">none</span>';
 
       let audioC;

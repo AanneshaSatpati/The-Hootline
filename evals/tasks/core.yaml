@@ -579,3 +579,42 @@
     - status: 200
     - body_contains: "loadShowFormat().then"
     - body_contains: ".catch("
+
+# INC-006: Served HTML must never contain double-escaped apostrophes
+- id: dashboard-no-double-escaped-quotes
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-006
+  description: >
+    The served dashboard HTML must not contain the 3-character sequence
+    backslash-backslash-apostrophe (\\'). In JS, \\ is a literal backslash
+    and then ' ends the string — always a syntax error. This pattern has
+    caused the dashboard to silently break twice (INC-005, INC-006) because
+    a single syntax error kills the entire script block. This eval directly
+    detects the bad pattern rather than relying on indirect proxy checks.
+  method: GET
+  endpoint: /
+  assertions:
+    - status: 200
+    - body_contains: "\\\\'"
+      operator: not_contains
+
+# INC-006: Template must be read fresh (not cached at import time)
+- id: dashboard-template-not-stale
+  feature: dashboard
+  type: regression
+  incident: INC-006
+  description: >
+    The dashboard router must not cache the template at module import time.
+    This eval verifies that the served HTML includes the current build
+    version (which is set at import time) AND the .catch() error handler
+    (which was added to the template). If the template were stale-cached
+    from before the fix, the .catch() would be missing.
+  method: GET
+  endpoint: /
+  assertions:
+    - status: 200
+    - body_contains: "__BUILD_VERSION__"
+      operator: not_contains
+    - body_contains: ".catch("
+    - body_contains: "loadShowFormat().then"

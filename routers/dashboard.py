@@ -13,7 +13,7 @@ BUILD_NUMBER = 1
 BUILD_DATE = datetime.now(UTC).strftime("%b %d, %Y")
 BUILD_VERSION = f"b{BUILD_NUMBER} · {BUILD_DATE}"
 
-DASHBOARD_HTML = Path("templates/dashboard.html").read_text()
+_TEMPLATE_PATH = Path("templates/dashboard.html")
 
 router = APIRouter()
 
@@ -43,7 +43,8 @@ def _build_dashboard_html(show_id: str = "") -> str:
     title = show.podcast_title
     tagline = show.podcast_description
 
-    return (DASHBOARD_HTML
+    html = _TEMPLATE_PATH.read_text()
+    return (html
             .replace("__SHOW_ID__", show_id)
             .replace("__SHOW_TITLE__", title)
             .replace("__SHOW_TAGLINE__", tagline)

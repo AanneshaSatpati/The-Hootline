@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-03-02T08:44:39Z",
+  "timestamp": "2026-03-02T08:57:50Z",
   "base_url": "http://localhost:5000",
-  "total": 37,
-  "passed": 37,
+  "total": 39,
+  "passed": 39,
   "failed": 0,
   "results": [
     {
@@ -259,6 +259,20 @@
     },
     {
       "id": "dashboard-js-no-syntax-errors",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dashboard-no-double-escaped-quotes",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dashboard-template-not-stale",
       "pass": true,
       "status_code": 200,
       "failures": [],
