@@ -2,21 +2,15 @@
 
 import json
 import logging
-import os
 import sqlite3
 from pathlib import Path
 
 from google.cloud import storage
 from google.oauth2 import service_account
 
-from config import settings
+from config import is_dev, is_prod, settings
 
 logger = logging.getLogger(__name__)
-
-
-def _is_prod() -> bool:
-    """True when running in the production environment."""
-    return os.environ.get("NOCTUA_ENV", "dev").lower() == "prod"
 
 
 def _get_client() -> storage.Client:
@@ -76,8 +70,9 @@ def upload_db(db_path: Path, show_id: str = "hootline") -> bool:
     Only runs in prod (NOCTUA_ENV=prod). Dev is read-only against prod GCS.
     Non-fatal: logs errors but never raises.
     """
-    if not _is_prod():
-        logger.info("[DEV] Skipping DB upload — read-only against prod GCS.")
+    if is_dev():
+        logger.warning("DEV MODE: upload_db() called but skipped — data will NOT persist to GCS. "
+                        "Set NOCTUA_ENV=prod to enable.")
         return False
     if not is_configured():
         return False

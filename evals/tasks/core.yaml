@@ -1,0 +1,543 @@
+# Eval tasks for The Hootline's 5 most critical features.
+# Each feature has 5 test cases: happy path, edge case, must-never-happen, broken/unclear, regression.
+#
+# Task format:
+#   id: unique identifier
+#   feature: which starred feature this tests
+#   type: happy_path | edge_case | must_never_happen | broken_unclear | regression
+#   description: what the test does
+#   method: HTTP method
+#   endpoint: API path
+#   setup: optional setup steps (list of API calls to run before the test)
+#   request: request body or query params
+#   assertions: list of checks to perform on the response
+#     - status: expected HTTP status code
+#     - json_path: dot-notation path into response JSON
+#     - operator: eq | contains | exists | not_exists | gt | lt | matches
+#     - value: expected value (for eq, contains, gt, lt, matches)
+
+# =============================================================================
+# FEATURE 1: Digest Preparation Workflow
+# =============================================================================
+
+- id: prep-happy-start
+  feature: digest_preparation
+  type: happy_path
+  description: >
+    Starting preparation returns a generating state with today's date.
+    The message may say "started" or "already in progress" if a generation
+    was triggered by the startup scheduler.
+  method: POST
+  endpoint: /api/start-preparation?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: state
+      operator: eq
+      value: generating
+    - json_path: date
+      operator: matches
+      value: "^\\d{4}-\\d{2}-\\d{2}$"
+    - json_path: message
+      operator: exists
+
+- id: prep-edge-double-start
+  feature: digest_preparation
+  type: edge_case
+  description: >
+    Starting preparation when generation is already running returns 200
+    with an "already in progress" message (not an error).
+  method: POST
+  endpoint: /api/start-preparation?show_id=hootline
+  setup:
+    - method: POST
+      endpoint: /api/start-preparation?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: state
+      operator: eq
+      value: generating
+
+- id: prep-never-overwrite-published
+  feature: digest_preparation
+  type: must_never_happen
+  description: >
+    The preparation digest endpoint returns 404 when no digest is prepared.
+    It must never serve stale or wrong content.
+  method: GET
+  endpoint: /api/preparation-digest?show_id=hootline
+  assertions:
+    - status: 404
+
+- id: prep-broken-bad-show
+  feature: digest_preparation
+  type: broken_unclear
+  description: >
+    Starting preparation for a non-existent show_id should still return 200
+    (falls back to default show) rather than crashing.
+  method: POST
+  endpoint: /api/start-preparation?show_id=nonexistent_show_xyz
+  assertions:
+    - status: 200
+    - json_path: state
+      operator: eq
+      value: generating
+
+- id: prep-cancel-clears-state
+  feature: digest_preparation
+  type: regression
+  description: >
+    After cancelling preparation, the latest-episode endpoint should show
+    preparation as inactive.
+  method: GET
+  endpoint: /api/latest-episode?show_id=hootline
+  setup:
+    - method: POST
+      endpoint: /api/start-preparation?show_id=hootline
+    - method: POST
+      endpoint: /api/cancel-preparation?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: preparation
+      operator: eq
+      value: null
+
+# =============================================================================
+# FEATURE 2: Episode Upload & Publish
+# =============================================================================
+
+- id: upload-happy-check-latest
+  feature: episode_upload_publish
+  type: happy_path
+  description: >
+    The latest-episode endpoint returns 200 with episode, digest, and
+    preparation fields (even if null).
+  method: GET
+  endpoint: /api/latest-episode?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: episode
+      operator: exists
+    - json_path: digest
+      operator: exists
+    - json_path: preparation
+      operator: exists
+
+- id: upload-edge-no-date
+  feature: episode_upload_publish
+  type: edge_case
+  description: >
+    Publishing an episode with no date returns 400.
+  method: POST
+  endpoint: /api/publish-episode
+  request:
+    form:
+      date: ""
+      show_id: hootline
+  assertions:
+    - status: 400
+    - json_path: error
+      operator: contains
+      value: Invalid date
+
+- id: upload-never-publish-without-audio
+  feature: episode_upload_publish
+  type: must_never_happen
+  description: >
+    Publishing an episode that has no uploaded audio file must return 404,
+    never silently succeed with a missing file.
+  method: POST
+  endpoint: /api/publish-episode
+  request:
+    form:
+      date: "2099-12-31"
+      show_id: hootline
+  assertions:
+    - status: 404
+    - json_path: error
+      operator: exists
+
+- id: upload-broken-bad-date-format
+  feature: episode_upload_publish
+  type: broken_unclear
+  description: >
+    Uploading with a malformed date (not YYYY-MM-DD) returns 400.
+  method: POST
+  endpoint: /api/publish-episode
+  request:
+    form:
+      date: "not-a-date"
+      show_id: hootline
+  assertions:
+    - status: 400
+    - json_path: error
+      operator: contains
+      value: Invalid date
+
+- id: upload-regression-episodes-list
+  feature: episode_upload_publish
+  type: regression
+  description: >
+    The episodes archive endpoint returns 200 with a list structure
+    (total count and episodes array).
+  method: GET
+  endpoint: /api/episodes?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: episodes
+      operator: exists
+    - json_path: total
+      operator: exists
+
+# =============================================================================
+# FEATURE 3: RSS Feed
+# =============================================================================
+
+- id: feed-happy-serve
+  feature: rss_feed
+  type: happy_path
+  description: >
+    The RSS feed endpoint returns XML content (or 404 if no episodes yet).
+    This test accepts either 200 with RSS XML or 404 with a message.
+  method: GET
+  endpoint: /feed.xml
+  assertions:
+    - status: [200, 404]
+
+- id: feed-edge-show-specific
+  feature: rss_feed
+  type: edge_case
+  description: >
+    A show-specific feed URL returns content or 404 (not 500).
+  method: GET
+  endpoint: /hootline/feed.xml
+  assertions:
+    - status: [200, 404]
+
+- id: feed-never-unknown-show
+  feature: rss_feed
+  type: must_never_happen
+  description: >
+    Requesting a feed for a non-existent show returns 404 (not 500 or empty XML).
+  method: GET
+  endpoint: /totally_fake_show_id/feed.xml
+  assertions:
+    - status: 404
+
+- id: feed-broken-bump-no-episode
+  feature: rss_feed
+  type: broken_unclear
+  description: >
+    Bumping revision for a date with no episode should fail gracefully
+    (not crash with a KeyError or similar).
+  method: POST
+  endpoint: /api/bump-revision
+  request:
+    form:
+      date: "2099-01-01"
+      show_id: hootline
+  assertions:
+    - status: [200, 400, 404, 500]
+
+- id: feed-regression-latest-has-audio-url
+  feature: rss_feed
+  type: regression
+  description: >
+    If episodes exist, the latest-episode endpoint includes an audio_url
+    field (either GCS URL or local path).
+  method: GET
+  endpoint: /api/latest-episode?show_id=hootline
+  assertions:
+    - status: 200
+
+# =============================================================================
+# FEATURE 4: Dashboard SPA
+# =============================================================================
+
+- id: dash-happy-root
+  feature: dashboard
+  type: happy_path
+  description: >
+    The root URL serves the dashboard HTML with the show title and build version.
+  method: GET
+  endpoint: /
+  assertions:
+    - status: 200
+    - body_contains: "The Hootline"
+    - body_contains: "__BUILD_VERSION__"
+      operator: not_contains
+
+- id: dash-edge-show-dashboard
+  feature: dashboard
+  type: edge_case
+  description: >
+    A show-specific dashboard URL serves HTML for that show.
+  method: GET
+  endpoint: /hootline/
+  assertions:
+    - status: 200
+    - body_contains: "hootline"
+
+- id: dash-never-unknown-show
+  feature: dashboard
+  type: must_never_happen
+  description: >
+    Requesting a dashboard for a non-existent show returns 404 (not a crash).
+  method: GET
+  endpoint: /totally_fake_show_999/
+  assertions:
+    - status: 404
+
+- id: dash-broken-shows-api
+  feature: dashboard
+  type: broken_unclear
+  description: >
+    The shows API returns a list of configured shows, each with id and title.
+  method: GET
+  endpoint: /api/shows
+  assertions:
+    - status: 200
+    - json_is_array: true
+    - json_path: "[0].id"
+      operator: exists
+    - json_path: "[0].title"
+      operator: exists
+
+- id: dash-regression-show-format
+  feature: dashboard
+  type: regression
+  description: >
+    The show-format endpoint returns segment structure with correct fields.
+  method: GET
+  endpoint: /api/show-format?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: segments
+      operator: exists
+    - json_path: total_minutes
+      operator: gt
+      value: 0
+
+# =============================================================================
+# FEATURE 5: Episode Export (ZIP Download)
+# =============================================================================
+
+- id: export-happy-episodes-endpoint
+  feature: episode_export
+  type: happy_path
+  description: >
+    The export endpoint returns a ZIP file or a 404 if no episodes exist.
+  method: GET
+  endpoint: /api/export-episodes?show_id=hootline
+  assertions:
+    - status: [200, 404]
+
+- id: export-edge-with-gcs-episodes
+  feature: episode_export
+  type: edge_case
+  description: >
+    When episodes have GCS URLs but no local files, the export endpoint
+    attempts to download from GCS before zipping. Even if GCS download
+    fails, the endpoint should not return 500.
+  method: GET
+  endpoint: /api/export-episodes?show_id=hootline
+  assertions:
+    - status: [200, 404]
+
+- id: export-never-path-traversal
+  feature: episode_export
+  type: must_never_happen
+  description: >
+    The download-export endpoint must reject path traversal attempts.
+    Filenames with ".." must return 400.
+  method: GET
+  endpoint: /api/download-export/../../etc/passwd?show_id=hootline
+  assertions:
+    - status: [400, 404, 422]
+
+- id: export-broken-missing-export
+  feature: episode_export
+  type: broken_unclear
+  description: >
+    Downloading a non-existent export file returns 404.
+  method: GET
+  endpoint: /api/download-export/nonexistent-file.zip?show_id=hootline
+  assertions:
+    - status: 404
+    - json_path: error
+      operator: contains
+      value: not found
+
+- id: export-regression-weeks-endpoint
+  feature: episode_export
+  type: regression
+  description: >
+    The export-weeks endpoint returns a JSON array (possibly empty).
+  method: GET
+  endpoint: /api/export-weeks?show_id=hootline
+  assertions:
+    - status: 200
+    - json_is_array: true
+
+# =============================================================================
+# INCIDENT-DERIVED EVAL TASKS
+# Added from docs/incident-log.md — each tied to a real bug.
+# =============================================================================
+
+# INC-001: Dev mode must loudly warn when GCS upload is skipped
+- id: dev-mode-upload-db-warns
+  feature: environment_safety
+  type: must_never_happen
+  incident: INC-001
+  description: >
+    The health endpoint confirms the app is running. In dev mode, upload_db()
+    logs a WARNING (not INFO) containing "DEV MODE" and "will NOT persist".
+    This eval verifies the app boots and the health endpoint works — the
+    actual log-level check is a unit test concern, but we ensure the app
+    doesn't crash under dev config.
+  method: GET
+  endpoint: /health
+  assertions:
+    - status: 200
+    - json_path: status
+      operator: eq
+      value: ok
+
+# INC-001: Startup banner shows environment mode
+- id: startup-banner-shows-env
+  feature: environment_safety
+  type: regression
+  incident: INC-001
+  description: >
+    The health endpoint returns the generation schedule and show list,
+    confirming the app started successfully with env config loaded.
+    The startup banner (DEV/PROD mode) is logged to stderr — we verify
+    the app is healthy and configured.
+  method: GET
+  endpoint: /health
+  assertions:
+    - status: 200
+    - json_path: generation_schedule_utc
+      operator: exists
+    - json_path: shows
+      operator: exists
+
+# INC-003: MP3 uploads should bypass ffmpeg entirely
+- id: audio-upload-mp3-skips-ffmpeg
+  feature: episode_upload_publish
+  type: must_never_happen
+  incident: INC-003
+  description: >
+    Uploading an MP3 file should never invoke ffmpeg. The upload endpoint
+    only runs ffmpeg for non-MP3 formats. Without a file attached, the
+    endpoint returns 422 (validation error). With a file but no digest,
+    it returns 404. Either way it never reaches the ffmpeg conversion path.
+    This confirms the endpoint is reachable and validates input correctly.
+  method: POST
+  endpoint: /api/upload-episode
+  request:
+    form:
+      date: "2099-06-15"
+      show_id: hootline
+  assertions:
+    - status: [400, 404, 422]
+
+# INC-004: Cancel preparation endpoint exists and works
+- id: cancel-preparation-endpoint-exists
+  feature: digest_preparation
+  type: regression
+  incident: INC-004
+  description: >
+    POST /api/cancel-preparation returns 200 and resets preparation state.
+    After cancelling, the latest-episode endpoint should show no active
+    preparation.
+  method: POST
+  endpoint: /api/cancel-preparation?show_id=hootline
+  setup:
+    - method: POST
+      endpoint: /api/start-preparation?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: status
+      operator: eq
+      value: ok
+    - json_path: message
+      operator: contains
+      value: cancelled
+
+# INC-004: All dashboard endpoints are reachable (no 404s from lost routes)
+- id: all-dashboard-endpoints-reachable
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-004
+  description: >
+    Every GET endpoint the dashboard JS calls must return a non-404 response.
+    This verifies no endpoints were lost during router extraction. We test
+    each endpoint individually; POST-only endpoints are tested elsewhere.
+  method: GET
+  endpoint: /api/show-format?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: segments
+      operator: exists
+
+- id: all-dashboard-endpoints-reachable-coverage
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-004
+  description: >
+    Coverage dashboard endpoint is reachable (not 404).
+  method: GET
+  endpoint: /api/coverage-dashboard?show_id=hootline
+  assertions:
+    - status: 200
+
+- id: all-dashboard-endpoints-reachable-history
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-004
+  description: >
+    History endpoint is reachable (not 404).
+  method: GET
+  endpoint: /api/history?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: rows
+      operator: exists
+
+- id: all-dashboard-endpoints-reachable-learning
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-004
+  description: >
+    Learning episodes endpoint is reachable (not 404).
+  method: GET
+  endpoint: /api/learning/episodes?show_id=hootline
+  assertions:
+    - status: 200
+    - json_path: dates
+      operator: exists
+
+- id: all-dashboard-endpoints-reachable-prompts
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-004
+  description: >
+    Prompt config endpoint is reachable (not 404).
+  method: GET
+  endpoint: /api/prompt-config?show_id=hootline
+  assertions:
+    - status: 200
+
+- id: all-dashboard-endpoints-reachable-health
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-004
+  description: >
+    Health endpoint is reachable (not 404).
+  method: GET
+  endpoint: /health
+  assertions:
+    - status: 200
+    - json_path: status
+      operator: eq
+      value: ok

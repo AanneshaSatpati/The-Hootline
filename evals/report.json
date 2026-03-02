@@ -1,0 +1,255 @@
+{
+  "timestamp": "2026-03-02T08:25:02Z",
+  "base_url": "http://localhost:8099",
+  "total": 35,
+  "passed": 35,
+  "failed": 0,
+  "results": [
+    {
+      "id": "prep-happy-start",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "prep-edge-double-start",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "prep-never-overwrite-published",
+      "pass": true,
+      "status_code": 404,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "prep-broken-bad-show",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "prep-cancel-clears-state",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "upload-happy-check-latest",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "upload-edge-no-date",
+      "pass": true,
+      "status_code": 400,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "upload-never-publish-without-audio",
+      "pass": true,
+      "status_code": 404,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "upload-broken-bad-date-format",
+      "pass": true,
+      "status_code": 400,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "upload-regression-episodes-list",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "feed-happy-serve",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "feed-edge-show-specific",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "feed-never-unknown-show",
+      "pass": true,
+      "status_code": 404,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "feed-broken-bump-no-episode",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "feed-regression-latest-has-audio-url",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dash-happy-root",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dash-edge-show-dashboard",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dash-never-unknown-show",
+      "pass": true,
+      "status_code": 404,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dash-broken-shows-api",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dash-regression-show-format",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "export-happy-episodes-endpoint",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "export-edge-with-gcs-episodes",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "export-never-path-traversal",
+      "pass": true,
+      "status_code": 404,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "export-broken-missing-export",
+      "pass": true,
+      "status_code": 404,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "export-regression-weeks-endpoint",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dev-mode-upload-db-warns",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "startup-banner-shows-env",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "audio-upload-mp3-skips-ffmpeg",
+      "pass": true,
+      "status_code": 422,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "cancel-preparation-endpoint-exists",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "all-dashboard-endpoints-reachable",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "all-dashboard-endpoints-reachable-coverage",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "all-dashboard-endpoints-reachable-history",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "all-dashboard-endpoints-reachable-learning",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "all-dashboard-endpoints-reachable-prompts",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "all-dashboard-endpoints-reachable-health",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    }
+  ],
+  "grading": null
+}

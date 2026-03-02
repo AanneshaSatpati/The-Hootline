@@ -55,6 +55,21 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# --- Environment helpers ---
+
+NOCTUA_ENV = os.environ.get("NOCTUA_ENV", "dev").lower()
+
+
+def is_prod() -> bool:
+    """True when running in the production environment (NOCTUA_ENV=prod)."""
+    return NOCTUA_ENV == "prod"
+
+
+def is_dev() -> bool:
+    """True when running in development (NOCTUA_ENV is unset or not 'prod')."""
+    return not is_prod()
+
+
 # Seattle timezone — handles PST/PDT transitions automatically
 LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 

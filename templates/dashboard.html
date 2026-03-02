@@ -1,0 +1,1927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<title>__SHOW_TITLE__</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242734;
+    --border: #2e3140;
+    --text: #e4e4e7;
+    --text-dim: #8b8d98;
+    --accent: #c4a052;
+    --accent-dim: #a08438;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --blue: #60a5fa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* Header */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; font-weight: 600; color: var(--accent); letter-spacing: 2px; }
+  header .tagline { font-size: 11px; color: var(--text-dim); font-style: italic; }
+  header .actions { display: flex; align-items: center; gap: 8px; }
+
+  .btn {
+    font-size: 12px; color: var(--accent); text-decoration: none;
+    border: 1px solid var(--accent-dim); padding: 4px 12px; border-radius: 4px;
+    cursor: pointer; background: transparent; font-family: inherit;
+  }
+  .btn:hover { background: var(--accent-dim); color: var(--bg); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:disabled:hover { background: transparent; color: var(--accent); }
+
+  /* Tabs */
+  .tab-bar { display: flex; border-bottom: 1px solid var(--border); padding: 0 24px; }
+  .tab-btn {
+    font-family: inherit; font-size: 12px; font-weight: 500; color: var(--text-dim);
+    background: none; border: none; padding: 10px 20px; cursor: pointer;
+    border-bottom: 2px solid transparent; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Coverage Tab */
+  .cov-toggle {
+    background: transparent; border: 1px solid #333; color: #666;
+    font-family: inherit; font-size: 11px; padding: 6px 14px;
+    cursor: pointer; letter-spacing: 1px; transition: all 0.15s;
+  }
+  .cov-toggle.active { background: rgba(196,160,82,0.12); border-color: var(--accent); color: var(--accent); }
+  .cov-toggle:hover:not(.active) { border-color: #555; color: #999; }
+  .cov-back-btn {
+    background: none; border: 1px solid #333; color: var(--accent);
+    font-family: inherit; font-size: 11px; padding: 6px 14px;
+    border-radius: 3px; cursor: pointer; letter-spacing: 1px;
+  }
+  .cov-back-btn:hover { border-color: var(--accent); background: rgba(196,160,82,0.06); }
+  .cov-tooltip {
+    position: absolute; z-index: 20; pointer-events: none;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: 8px 12px; font-size: 10px;
+    line-height: 1.6; color: var(--text); display: none;
+    max-width: 260px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  #cov-range-controls input[type="date"] {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    font-family: inherit; font-size: 11px; padding: 4px 8px; border-radius: 3px;
+  }
+  #cov-range-controls input[type="range"] { accent-color: var(--accent); cursor: pointer; }
+  #cov-stats { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
+
+  /* Latest: two-column */
+  .latest-layout { display: flex; gap: 24px; max-width: 1200px; margin: 0 auto; padding: 24px; align-items: flex-start; }
+  .latest-left { flex: 1; min-width: 0; }
+  .latest-right { width: 540px; flex-shrink: 0; }
+
+  /* Card */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; margin-bottom: 16px;
+  }
+  .card-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 8px; }
+
+  /* Episode */
+  .ep-title { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+  .ep-desc { font-size: 13px; margin-bottom: 8px; line-height: 1.4; }
+  .ep-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .card audio { width: 100%; height: 44px; border-radius: 8px; }
+
+  /* Digest */
+  .digest-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .digest-stats { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .digest-topics { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .digest-btns { display: flex; gap: 6px; flex-shrink: 0; }
+  .dl-btn {
+    flex-shrink: 0; font-size: 12px; color: var(--bg); background: var(--accent);
+    border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-weight: 500; text-decoration: none; white-space: nowrap;
+  }
+  .dl-btn:hover { background: var(--accent-dim); }
+  .copy-url-btn {
+    flex-shrink: 0; font-size: 12px; color: var(--accent); background: transparent;
+    border: 1px solid var(--accent); padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-weight: 500; white-space: nowrap;
+  }
+  .copy-url-btn:hover { background: var(--accent); color: var(--bg); }
+  .copy-url-btn.copied { border-color: var(--ok); color: var(--ok); }
+
+  /* Upload */
+  .upload-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .upload-row input[type="file"] { font-family: inherit; font-size: 12px; color: var(--text-dim); flex: 1; min-width: 180px; }
+  .up-btn {
+    font-size: 12px; color: var(--bg); background: var(--accent); border: none;
+    padding: 8px 18px; border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: 500;
+  }
+  .up-btn:hover { background: var(--accent-dim); }
+  .up-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .upload-status { font-size: 12px; margin-top: 8px; }
+  .upload-status.error { color: var(--red); }
+  .upload-status.success { color: var(--green); }
+
+  /* Radar */
+  .radar-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .radar-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .radar-hdr .card-label { margin-bottom: 0; }
+  .radar-toggle { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .radar-toggle button {
+    font-family: inherit; font-size: 10px; padding: 4px 10px; border: none;
+    background: none; color: var(--text-dim); cursor: pointer;
+  }
+  .radar-toggle button.active { background: var(--accent-dim); color: var(--bg); }
+  .radar-legend { display: flex; gap: 16px; justify-content: center; margin: 10px 0; font-size: 10px; color: var(--text-dim); }
+  .radar-legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+  .radar-stats { font-size: 10px; color: var(--text-dim); text-align: center; margin-bottom: 8px; }
+
+  /* Suggestions */
+  .sug-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin: 12px 0 8px; }
+  .sug-item { font-size: 11px; padding: 6px 10px; border-radius: 5px; margin-bottom: 4px; display: flex; align-items: flex-start; gap: 6px; }
+  .sug-item.subscribe { background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2); color: var(--green); }
+  .sug-item.unsubscribe { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2); color: var(--red); }
+  .sug-item .pill { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; margin-top: 1px; }
+  .sug-item.subscribe .pill { background: rgba(74,222,128,0.15); }
+  .sug-item.unsubscribe .pill { background: rgba(248,113,113,0.15); }
+  .no-sug { font-size: 11px; color: var(--text-dim); font-style: italic; }
+
+  /* History */
+  .history-wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .htable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .htable th {
+    text-align: left; color: var(--text-dim); font-weight: 500; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; white-space: nowrap;
+  }
+  .htable td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .htable tr:hover td { background: var(--surface); }
+  .h-date { font-weight: 500; white-space: nowrap; }
+  .h-link { text-decoration: none; font-size: 11px; }
+  .h-link.digest { color: var(--accent); }
+  .h-link.audio { color: var(--blue); }
+  .h-link:hover { text-decoration: underline; }
+  .h-detail { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .h-badge { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+  .h-badge.yes { background: rgba(74,222,128,0.15); color: var(--green); }
+  .h-badge.no { background: rgba(248,113,113,0.08); color: var(--text-dim); }
+
+  /* Settings */
+  .settings-wrap { max-width: 800px; margin: 0 auto; padding: 24px; }
+  .settings-desc { font-size: 11px; color: var(--text-dim); margin: 6px 0 10px; line-height: 1.5; }
+  .prompt-textarea {
+    width: 100%; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px; line-height: 1.6; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px; resize: vertical;
+  }
+  .prompt-textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Empty state */
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; color: var(--text-dim); text-align: center; padding: 40px; }
+  .empty .owl { font-size: 56px; margin-bottom: 20px; opacity: 0.4; }
+  .empty p { font-size: 13px; line-height: 1.7; max-width: 400px; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 860px) {
+    .latest-layout { flex-direction: column; }
+    .latest-right { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div>
+      <h1 id="show-title">__SHOW_TITLE__</h1>
+      <div class="tagline">__SHOW_TAGLINE__</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span style="font-size:10px;color:var(--text-dim);" id="sched-info"></span>
+    <button class="btn" id="gen-btn" onclick="startPrep()">Prepare Digest</button>
+    <a class="btn" id="feed-link" href="/feed.xml">RSS Feed</a>
+    <span style="font-size:9px;color:var(--text-dim);opacity:0.5;">v__BUILD_VERSION__</span>
+  </div>
+</header>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('latest', this)">Latest</button>
+  <button class="tab-btn" onclick="switchTab('history', this)">History</button>
+  <button class="tab-btn" onclick="switchTab('coverage', this)">Coverage</button>
+  <button class="tab-btn" onclick="switchTab('settings', this)">Settings</button>
+  <button class="tab-btn" onclick="switchTab('learning', this)">Learning</button>
+</div>
+
+<div id="tab-latest" class="tab-content active">
+  <div class="latest-layout">
+    <div class="latest-left" id="left-col">
+      <div class="empty"><div class="owl">&#x1F989;</div><p>Loading...</p></div>
+    </div>
+    <div class="latest-right" id="right-col"></div>
+  </div>
+</div>
+
+<div id="tab-history" class="tab-content">
+  <div class="latest-layout">
+    <div class="latest-left" id="hist-content">
+      <div class="empty"><p>Loading history...</p></div>
+    </div>
+    <div class="latest-right" id="hist-radar"></div>
+  </div>
+</div>
+
+<div id="tab-coverage" class="tab-content">
+  <div id="cov-wrap" style="position:relative;width:100%;min-height:calc(100vh - 80px);padding:24px;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+      <div id="cov-view-toggle" style="display:flex;gap:0;">
+        <button class="cov-toggle active" onclick="covSetView('radar')" style="border-radius:3px 0 0 3px;">Radar</button>
+        <button class="cov-toggle" onclick="covSetView('trend')" style="border-radius:0 3px 3px 0;">Trend</button>
+      </div>
+      <div id="cov-tab-toggle" style="display:flex;gap:0;">
+        <button class="cov-toggle active" onclick="covSetTab('latest')" style="border-radius:3px 0 0 3px;">Latest</button>
+        <button class="cov-toggle" onclick="covSetTab('range')" style="border-radius:0 3px 3px 0;">Range</button>
+      </div>
+      <div id="cov-mode-toggle" style="display:flex;gap:0;margin-left:auto;">
+        <button class="cov-toggle" onclick="covSetMode('audio')" style="border-radius:3px 0 0 3px;">Audio</button>
+        <button class="cov-toggle" onclick="covSetMode('digest')" style="border-radius:0;">Digest</button>
+        <button class="cov-toggle active" onclick="covSetMode('both')" style="border-radius:0 3px 3px 0;">Both</button>
+      </div>
+      <button id="cov-analyze-btn" onclick="covTriggerAnalysis()" style="margin-left:8px;padding:4px 10px;font-size:10px;background:var(--surface);color:var(--accent);border:1px solid var(--accent);border-radius:4px;cursor:pointer;display:none;" title="Transcribe audio for per-topic analysis">Analyze Audio</button>
+    </div>
+    <div id="cov-range-controls" style="display:none;margin-bottom:12px;padding:10px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <input type="date" id="cov-range-start" onchange="covRangeChanged()">
+        <span style="color:var(--text-dim);">&mdash;</span>
+        <input type="date" id="cov-range-end" onchange="covRangeChanged()">
+        <span id="cov-range-label" style="margin-left:auto;font-size:11px;color:var(--accent);font-variant-numeric:tabular-nums;"></span>
+      </div>
+      <input type="range" id="cov-range-slider-start" min="0" max="10" value="0" oninput="covSliderChanged()" style="width:calc(50% - 8px);">
+      <input type="range" id="cov-range-slider-end" min="0" max="10" value="10" oninput="covSliderChanged()" style="width:calc(50% - 8px);">
+    </div>
+    <div id="cov-stats" style="margin-bottom:8px;"></div>
+    <div style="position:relative;">
+      <canvas id="cov-canvas" style="display:block;width:100%;"></canvas>
+      <div id="cov-tooltip" class="cov-tooltip"></div>
+      <button id="cov-back" class="cov-back-btn" onclick="covSetView('radar')" style="display:none;position:absolute;top:12px;left:0;">&#8592; Back</button>
+    </div>
+  </div>
+</div>
+
+<div id="tab-settings" class="tab-content">
+  <div class="settings-wrap">
+    <div id="show-format-slot"></div>
+    <div class="card">
+      <div class="card-label">Digest Generation Prompt</div>
+      <p class="settings-desc">System prompt sent to Gemini when generating each topic segment of the digest.</p>
+      <textarea id="prompt-system" class="prompt-textarea" rows="12" spellcheck="false"></textarea>
+    </div>
+    <div class="card">
+      <div class="card-label">Podcast Preamble</div>
+      <p class="settings-desc">Production instructions included at the top of the final compiled digest (before all segments).</p>
+      <textarea id="prompt-preamble" class="prompt-textarea" rows="10" spellcheck="false"></textarea>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="up-btn" id="save-prompts-btn" onclick="savePromptConfig()">Save</button>
+      <button class="btn" onclick="loadPromptConfig()">Reset</button>
+      <span id="prompt-save-status" class="upload-status"></span>
+    </div>
+  </div>
+</div>
+
+<div id="tab-learning" class="tab-content">
+  <div style="max-width:900px;margin:0 auto;padding:24px 0;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+      <label style="font-size:13px;color:var(--muted);">Episode:</label>
+      <select id="learn-episode-select" onchange="loadLearningEpisode(this.value)"
+              style="background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;"></select>
+      <span id="learn-status" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div id="learn-egregious-banner" style="display:none;background:#b91c1c;color:#fff;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-weight:600;font-size:14px;">
+      This episode flagged as needing attention.
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-label" style="margin-bottom:12px;">Episode Health</div>
+      <div id="learn-health-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-label" style="margin-bottom:12px;">Findings</div>
+      <div id="learn-findings-list" style="font-size:13px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-label" style="margin-bottom:12px;">Suggestion Queue</div>
+      <div id="learn-suggestions-list" style="font-size:13px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SHOW_ID = '__SHOW_ID__';
+const SHOW_TITLE = '__SHOW_TITLE__';
+let radarMode = 'latest';
+let _showFormat = null; // loaded from API
+
+// Helper to append show_id query parameter
+function apiUrl(path, extraParams) {
+  const sep = path.includes('?') ? '&' : '?';
+  let url = path + sep + 'show_id=' + encodeURIComponent(SHOW_ID);
+  if (extraParams) url += '&' + extraParams;
+  return url;
+}
+
+// Load show format from API
+async function loadShowFormat() {
+  try {
+    const res = await fetch(apiUrl('/api/show-format'));
+    _showFormat = await res.json();
+  } catch(e) { console.error('Failed to load show format', e); }
+  // Set correct RSS feed link per show
+  const feedLink = document.getElementById('feed-link');
+  if (feedLink) {
+    feedLink.href = SHOW_ID === 'hootline' ? '/feed.xml' : '/' + SHOW_ID + '/feed.xml';
+  }
+}
+
+// ===== COVERAGE TAB (Radar + Area Chart) =====
+let _cov = null;
+const COV_COLORS = [
+  '#7DF9AA','#5BC4F7','#F7A35B','#F75B7D','#D95BF7',
+  '#F7E85B','#5BF7D9','#F75B5B','#5B7DF7','#A3F75B',
+  '#F7C45B','#5BF7A3','#C45BF7','#8899AA',
+];
+const COV_AUDIO = '#5BC4F7';
+const COV_DIGEST = '#c4a052';
+
+async function covInit() {
+  if (_cov && _cov.loaded) { covDraw(); return; }
+  _cov = {
+    loaded: false, topics: [], episodes: [],
+    view: 'radar', tab: 'latest', mode: 'both',
+    rangeStart: 0, rangeEnd: 0,
+    trendTopic: null, hoverTopic: -1, trendHover: -1,
+    particles: [], animating: false, animId: null
+  };
+  try {
+    var res = await fetch(apiUrl('/api/coverage-dashboard'));
+    var data = await res.json();
+    if (!data.topics || !data.episodes || data.episodes.length < 1) return;
+    _cov.topics = data.topics;
+    _cov.episodes = data.episodes;
+    _cov.rangeStart = 0;
+    _cov.rangeEnd = data.episodes.length - 1;
+    _cov.loaded = true;
+    covInitRangeControls();
+    covUpdateStats();
+    covUpdateAnalyzeBtn();
+    covDraw();
+    var cv = document.getElementById('cov-canvas');
+    cv.onmousemove = covCanvasHover;
+    cv.onmouseleave = function() { _cov.hoverTopic = -1; _cov.trendHover = -1; document.getElementById('cov-tooltip').style.display = 'none'; if (!_cov.animating) covDraw(); };
+    cv.onclick = covCanvasClick;
+  } catch(e) {
+    console.error('Coverage init error:', e);
+  }
+}
+
+function covSetView(v) {
+  if (_cov.animating) return;
+  var prev = _cov.view;
+  _cov.view = v;
+  document.querySelectorAll('#cov-view-toggle .cov-toggle').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.toLowerCase() === v);
+  });
+  document.getElementById('cov-back').style.display = v === 'trend' ? 'block' : 'none';
+  if (v === 'trend' && _cov.trendTopic === null) _cov.trendTopic = 0;
+  if (prev !== v) covParticleTransition(function() { covDraw(); });
+  else covDraw();
+}
+
+function covSetTab(t) {
+  _cov.tab = t;
+  document.querySelectorAll('#cov-tab-toggle .cov-toggle').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.toLowerCase() === t);
+  });
+  document.getElementById('cov-range-controls').style.display = t === 'range' ? 'block' : 'none';
+  covUpdateStats();
+  covDraw();
+}
+
+function covSetMode(m) {
+  _cov.mode = m;
+  document.querySelectorAll('#cov-mode-toggle .cov-toggle').forEach(function(b) {
+    b.classList.toggle('active', b.textContent.toLowerCase() === m);
+  });
+  covDraw();
+}
+
+function covInitRangeControls() {
+  var eps = _cov.episodes;
+  if (eps.length < 1) return;
+  var s = document.getElementById('cov-range-start');
+  var e = document.getElementById('cov-range-end');
+  s.value = eps[0].date;
+  e.value = eps[eps.length - 1].date;
+  var ss = document.getElementById('cov-range-slider-start');
+  var se = document.getElementById('cov-range-slider-end');
+  ss.max = eps.length - 1; ss.value = 0;
+  se.max = eps.length - 1; se.value = eps.length - 1;
+  covUpdateRangeLabel();
+}
+
+function covRangeChanged() {
+  var s = document.getElementById('cov-range-start').value;
+  var e = document.getElementById('cov-range-end').value;
+  var eps = _cov.episodes;
+  _cov.rangeStart = 0; _cov.rangeEnd = eps.length - 1;
+  for (var i = 0; i < eps.length; i++) { if (eps[i].date >= s) { _cov.rangeStart = i; break; } }
+  for (var i = eps.length - 1; i >= 0; i--) { if (eps[i].date <= e) { _cov.rangeEnd = i; break; } }
+  document.getElementById('cov-range-slider-start').value = _cov.rangeStart;
+  document.getElementById('cov-range-slider-end').value = _cov.rangeEnd;
+  covUpdateRangeLabel();
+  covUpdateStats();
+  covDraw();
+}
+
+function covSliderChanged() {
+  var ss = parseInt(document.getElementById('cov-range-slider-start').value);
+  var se = parseInt(document.getElementById('cov-range-slider-end').value);
+  if (ss > se) { var tmp = ss; ss = se; se = tmp; }
+  _cov.rangeStart = ss; _cov.rangeEnd = se;
+  var eps = _cov.episodes;
+  document.getElementById('cov-range-start').value = eps[ss].date;
+  document.getElementById('cov-range-end').value = eps[se].date;
+  covUpdateRangeLabel();
+  covUpdateStats();
+  covDraw();
+}
+
+function covUpdateRangeLabel() {
+  var eps = _cov.episodes;
+  var s = _cov.rangeStart, e = _cov.rangeEnd;
+  document.getElementById('cov-range-label').textContent =
+    'Ep ' + (s+1) + ' (' + eps[s].date.slice(5) + ') \u2014 Ep ' + (e+1) + ' (' + eps[e].date.slice(5) + ')';
+}
+
+function covGetSelectedEpisodes() {
+  if (_cov.tab === 'latest') return [_cov.episodes[_cov.episodes.length - 1]];
+  return _cov.episodes.slice(_cov.rangeStart, _cov.rangeEnd + 1);
+}
+
+function covComputeCoverage() {
+  return covComputeCoverageFor(_cov.mode === 'both' ? 'digest' : _cov.mode);
+}
+
+function covComputeCoverageFor(forceMode) {
+  var eps = covGetSelectedEpisodes();
+  var topics = _cov.topics;
+  var result = {};
+  for (var i = 0; i < topics.length; i++) {
+    var sum = 0, count = 0;
+    for (var j = 0; j < eps.length; j++) {
+      var src = (forceMode === 'audio') ? eps[j].audio_coverage : eps[j].digest_coverage;
+      if (!src) src = eps[j].coverage;
+      var c = src ? src[topics[i].name] : null;
+      if (c) { sum += c.pct; count++; }
+    }
+    result[topics[i].name] = count > 0 ? sum / count : 0;
+  }
+  return result;
+}
+
+function covHasRealAudio() {
+  return _cov.episodes.some(function(ep) { return ep.audio_status === 'complete'; });
+}
+
+function covUpdateAnalyzeBtn() {
+  var btn = document.getElementById('cov-analyze-btn');
+  if (!btn || !_cov || !_cov.loaded) return;
+  var needsAnalysis = _cov.episodes.some(function(ep) {
+    return ep.audio_status === 'none' || ep.audio_status === 'failed';
+  });
+  btn.style.display = needsAnalysis ? 'inline-block' : 'none';
+}
+
+async function covTriggerAnalysis() {
+  if (!_cov || !_cov.loaded) return;
+  var btn = document.getElementById('cov-analyze-btn');
+  btn.textContent = 'Analyzing...';
+  btn.disabled = true;
+  // Find episodes that need analysis
+  var pending = _cov.episodes.filter(function(ep) {
+    return ep.audio_status === 'none' || ep.audio_status === 'failed';
+  });
+  for (var i = 0; i < pending.length; i++) {
+    try {
+      var fd = new FormData();
+      fd.append('date', pending[i].date);
+      fd.append('show_id', SHOW_ID);
+      await fetch(apiUrl('/api/transcribe-episode'), { method: 'POST', body: fd });
+    } catch(e) { console.error('Transcribe trigger error:', e); }
+  }
+  btn.textContent = pending.length + ' queued';
+  setTimeout(function() {
+    btn.textContent = 'Analyze Audio';
+    btn.disabled = false;
+    // Refresh data
+    _cov = null;
+    covInit();
+  }, 5000);
+}
+
+function covUpdateStats() {
+  var eps = covGetSelectedEpisodes();
+  var totalWords = 0;
+  for (var i = 0; i < eps.length; i++) totalWords += eps[i].total_words;
+  var label = _cov.tab === 'latest'
+    ? eps[0].date + ' \u00b7 ' + totalWords.toLocaleString() + ' words'
+    : eps.length + ' episodes \u00b7 ' + totalWords.toLocaleString() + ' total words';
+  document.getElementById('cov-stats').textContent = label;
+}
+
+function covDraw() {
+  if (!_cov || !_cov.loaded || _cov.animating) return;
+  if (_cov.view === 'radar') covDrawRadar();
+  else covDrawArea();
+}
+
+function covDrawRadar() {
+  if (!_cov || !_cov.loaded) return;
+  var canvas = document.getElementById('cov-canvas');
+  var wrap = document.getElementById('cov-wrap');
+  var dpr = window.devicePixelRatio || 1;
+  var topics = _cov.topics;
+  var nt = topics.length;
+  var coverage = covComputeCoverage();
+
+  var W = wrap.clientWidth;
+  var size = Math.min(W, window.innerHeight - 300);
+  var H = Math.max(480, size + 60);
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  var cx = W / 2, cy = H / 2;
+  var R = (Math.min(W, H) - 140) / 2;
+  if (R < 60) return;
+
+  function ang(i) { return (i / nt) * Math.PI * 2 - Math.PI / 2; }
+  function pt(i, r) { return { x: cx + Math.cos(ang(i)) * r, y: cy + Math.sin(ang(i)) * r }; }
+
+  // Grid rings at 25%, 50%, 75%, 100%, 150%
+  [0.25, 0.5, 0.75, 1.0, 1.5].forEach(function(pct) {
+    var r = pct * R;
+    ctx.strokeStyle = pct === 1.0 ? '#c4a05250' : pct === 1.5 ? '#ff444430' : '#ffffff0d';
+    ctx.lineWidth = pct === 1.0 ? 1.5 : pct === 1.5 ? 1 : 0.5;
+    if (pct === 1.5) ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    for (var i = 0; i <= nt; i++) {
+      var p = pt(i % nt, r);
+      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath(); ctx.stroke();
+    if (pct === 1.5) ctx.setLineDash([]);
+    if (pct < 1.0) {
+      ctx.fillStyle = '#444';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(Math.round(pct * 100) + '%', cx + 4, cy - r - 2);
+    }
+  });
+  // 100% label
+  ctx.fillStyle = '#c4a052';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('100%', cx + 4, cy - R - 3);
+  // 150% label
+  ctx.fillStyle = '#ff444480';
+  ctx.font = '8px monospace';
+  ctx.fillText('150%', cx + 4, cy - 1.5 * R - 3);
+
+  // Spokes
+  for (var i = 0; i < nt; i++) {
+    var p = pt(i, R + 5);
+    ctx.strokeStyle = '#ffffff08';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(p.x, p.y); ctx.stroke();
+  }
+
+  // Coverage values — compute per mode
+  var mode = _cov.mode;
+  var digestCov = covComputeCoverageFor('digest');
+  var audioCov = covComputeCoverageFor('audio');
+  var vals = []; // primary values used for dots/labels
+  for (var i = 0; i < nt; i++) {
+    if (mode === 'audio') vals.push(audioCov[topics[i].name] || 0);
+    else vals.push(digestCov[topics[i].name] || 0); // digest or both default
+  }
+
+  // Draw polygon helper — cap visual at 150% so polygon stays visible
+  var VISUAL_CAP = 1.5;
+  function drawPolyVals(vArr, color, alpha) {
+    ctx.beginPath();
+    for (var i = 0; i < nt; i++) {
+      var v = Math.min(vArr[i], VISUAL_CAP);
+      var p = pt(i, v * R);
+      i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    var cr = parseInt(color.slice(1,3),16), cg = parseInt(color.slice(3,5),16), cb = parseInt(color.slice(5,7),16);
+    ctx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+alpha+')';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  if (mode === 'both') {
+    var aVals = [], dVals = [];
+    for (var i = 0; i < nt; i++) {
+      aVals.push(audioCov[topics[i].name] || 0);
+      dVals.push(digestCov[topics[i].name] || 0);
+    }
+    drawPolyVals(dVals, COV_DIGEST, 0.14);
+    drawPolyVals(aVals, COV_AUDIO, 0.18);
+  } else if (mode === 'audio') {
+    drawPolyVals(vals, COV_AUDIO, 0.12);
+  } else {
+    drawPolyVals(vals, COV_DIGEST, 0.14);
+  }
+
+  // Dots at vertices (use primary vals)
+  for (var i = 0; i < nt; i++) {
+    var v = Math.min(vals[i], VISUAL_CAP);
+    var p = pt(i, v * R);
+    var isH = (_cov.hoverTopic === i);
+    var dotC = (mode === 'audio') ? COV_AUDIO : (mode === 'digest') ? COV_DIGEST : COV_COLORS[i % COV_COLORS.length];
+    ctx.fillStyle = dotC;
+    ctx.beginPath(); ctx.arc(p.x, p.y, isH ? 7 : 4, 0, Math.PI * 2); ctx.fill();
+    if (isH) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  // Topic labels around perimeter
+  for (var i = 0; i < nt; i++) {
+    var a = ang(i);
+    var lr = R + 28;
+    var lx = cx + Math.cos(a) * lr;
+    var ly = cy + Math.sin(a) * lr;
+    var isH = (_cov.hoverTopic === i);
+    ctx.fillStyle = isH ? '#fff' : COV_COLORS[i % COV_COLORS.length];
+    ctx.font = (isH ? 'bold ' : '') + '10px monospace';
+    ctx.textBaseline = 'middle';
+    // Text alignment based on position
+    if (a > -0.3 && a < 0.3) ctx.textAlign = 'center';
+    else if (a >= 0.3 && a <= Math.PI - 0.3) ctx.textAlign = (Math.cos(a) >= 0) ? 'left' : 'right';
+    else if (a > Math.PI - 0.3 || a < -Math.PI + 0.3) ctx.textAlign = 'center';
+    else ctx.textAlign = (Math.cos(a) >= 0) ? 'left' : 'right';
+    var name = topics[i].name.length > 14 ? topics[i].name.slice(0,13) + '\u2026' : topics[i].name;
+    ctx.fillText(name + ' (' + topics[i].alloc_min + 'm)', lx, ly);
+    // Coverage pct below
+    ctx.fillStyle = isH ? '#aaa' : '#555';
+    ctx.font = '8px monospace';
+    ctx.fillText(Math.round(vals[i] * 100) + '%', lx, ly + 12);
+  }
+
+  // Mode legend
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  var legY = H - 20;
+  var hasReal = covHasRealAudio();
+  if (mode === 'both' || mode === 'audio') {
+    ctx.fillStyle = COV_AUDIO; ctx.fillRect(10, legY, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText(hasReal ? 'Audio' : 'Audio (pending)', 26, legY);
+  }
+  if (mode === 'both' || mode === 'digest') {
+    var ox = mode === 'both' ? (hasReal ? 90 : 140) : 10;
+    ctx.fillStyle = COV_DIGEST; ctx.fillRect(ox, legY, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText('Digest', ox + 16, legY);
+  }
+
+  // Store layout for hover
+  _cov.radarLayout = { cx: cx, cy: cy, R: R, nt: nt, vals: vals };
+}
+
+function covDrawArea() {
+  if (!_cov || !_cov.loaded || _cov.trendTopic === null) return;
+  var canvas = document.getElementById('cov-canvas');
+  var wrap = document.getElementById('cov-wrap');
+  var dpr = window.devicePixelRatio || 1;
+  var W = wrap.clientWidth;
+  var H = Math.max(400, Math.min(600, window.innerHeight - 280));
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  var pad = { top: 44, right: 50, bottom: 50, left: 60 };
+  var plotW = W - pad.left - pad.right;
+  var plotH = H - pad.top - pad.bottom;
+  var ti = _cov.trendTopic;
+  var topic = _cov.topics[ti];
+  var color = COV_COLORS[ti % COV_COLORS.length];
+  var eps = covGetSelectedEpisodes();
+  var ne = eps.length;
+  if (ne < 1) return;
+
+  // Compute values per mode
+  var mode = _cov.mode;
+  function epVals(src) {
+    return eps.map(function(ep) {
+      var s = (src === 'audio') ? ep.audio_coverage : ep.digest_coverage;
+      if (!s) s = ep.coverage;
+      var c = s ? s[topic.name] : null;
+      return c ? c.pct : 0;
+    });
+  }
+  var digestVals = epVals('digest');
+  var audioVals = epVals('audio');
+  var values = (mode === 'audio') ? audioVals : digestVals;
+  var allVals = digestVals.concat(audioVals);
+  var maxVal = Math.max(1.3, Math.max.apply(null, allVals)) * 1.1;
+
+  // Title
+  ctx.fillStyle = color;
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(topic.name + ' (' + topic.alloc_min + 'm / ~' + topic.target_words + ' words)', pad.left, 8);
+
+  // Y-axis grid
+  var ySteps = 5;
+  for (var i = 0; i <= ySteps; i++) {
+    var yy = pad.top + plotH - (i / ySteps) * plotH;
+    ctx.strokeStyle = '#1a1a2a';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.left, yy); ctx.lineTo(pad.left + plotW, yy); ctx.stroke();
+    ctx.fillStyle = '#555';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(i / ySteps * maxVal * 100) + '%', pad.left - 8, yy);
+  }
+
+  // 100% dashed reference
+  var y100 = pad.top + plotH - (1.0 / maxVal) * plotH;
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, y100); ctx.lineTo(pad.left + plotW, y100); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#666';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('target', pad.left + plotW + 6, y100);
+
+  // X-axis labels
+  ctx.fillStyle = '#555';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  var step = Math.max(1, Math.floor(ne / 12));
+  for (var i = 0; i < ne; i += step) {
+    var xx = pad.left + (ne > 1 ? (i / (ne - 1)) * plotW : plotW / 2);
+    ctx.fillText(eps[i].date.slice(5), xx, pad.top + plotH + 10);
+  }
+
+  // Helper: draw filled area + line from value array
+  function drawAreaFill(vArr, fillColor, strokeColor, alpha) {
+    if (ne < 2) return;
+    ctx.beginPath();
+    for (var i = 0; i < ne; i++) {
+      var xx = pad.left + (i / (ne - 1)) * plotW;
+      var yy = pad.top + plotH - (vArr[i] / maxVal) * plotH;
+      i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
+    }
+    ctx.lineTo(pad.left + plotW, pad.top + plotH);
+    ctx.lineTo(pad.left, pad.top + plotH);
+    ctx.closePath();
+    var cr = parseInt(fillColor.slice(1,3),16), cg = parseInt(fillColor.slice(3,5),16), cb = parseInt(fillColor.slice(5,7),16);
+    ctx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+alpha+')';
+    ctx.fill();
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (var i = 0; i < ne; i++) {
+      var xx = pad.left + (i / (ne - 1)) * plotW;
+      var yy = pad.top + plotH - (vArr[i] / maxVal) * plotH;
+      i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
+    }
+    ctx.stroke();
+  }
+
+  if (mode === 'both') {
+    drawAreaFill(audioVals, COV_AUDIO, COV_AUDIO, 0.10);
+    drawAreaFill(digestVals, COV_DIGEST, COV_DIGEST, 0.14);
+  } else if (mode === 'audio') {
+    drawAreaFill(audioVals, COV_AUDIO, COV_AUDIO, 0.12);
+  } else {
+    drawAreaFill(digestVals, COV_DIGEST, COV_DIGEST, 0.14);
+  }
+
+  // Dots (primary values)
+  for (var i = 0; i < ne; i++) {
+    var xx = pad.left + (ne > 1 ? (i / (ne - 1)) * plotW : plotW / 2);
+    var yy = pad.top + plotH - (values[i] / maxVal) * plotH;
+    var isH = (_cov.trendHover === i);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(xx, yy, isH ? 6 : 3, 0, Math.PI * 2); ctx.fill();
+    if (isH) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  // Mode legend
+  var hasReal = covHasRealAudio();
+  ctx.font = '9px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  if (mode === 'both' || mode === 'audio') {
+    ctx.fillStyle = COV_AUDIO; ctx.fillRect(W - 160, pad.top + 4, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText(hasReal ? 'Audio' : 'Audio (pending)', W - 90, pad.top + 4);
+  }
+  if (mode === 'both' || mode === 'digest') {
+    var oy = mode === 'both' ? pad.top + 18 : pad.top + 4;
+    ctx.fillStyle = COV_DIGEST; ctx.fillRect(W - 160, oy, 12, 8);
+    ctx.fillStyle = '#666'; ctx.fillText('Digest', W - 90, oy);
+  }
+
+  // Store layout for hover
+  _cov.areaLayout = { pad: pad, plotW: plotW, plotH: plotH, W: W, H: H, ne: ne, values: values, maxVal: maxVal, eps: eps };
+}
+
+// ===== PARTICLE TRANSITION =====
+
+function covParticleTransition(onComplete) {
+  if (_cov.animating) { if (onComplete) onComplete(); return; }
+  _cov.animating = true;
+  if (_cov.animId) cancelAnimationFrame(_cov.animId);
+
+  var canvas = document.getElementById('cov-canvas');
+  var dpr = window.devicePixelRatio || 1;
+  var W = parseFloat(canvas.style.width) || canvas.width / dpr;
+  var H = parseFloat(canvas.style.height) || canvas.height / dpr;
+
+  var particles = covCreateParticles(W, H);
+  _cov.particles = particles;
+  covCalcTargets(particles, W, H);
+
+  var start = performance.now();
+  var dissolveDur = 300, reformDur = 500, totalDur = dissolveDur + reformDur;
+
+  function frame() {
+    var t = performance.now() - start;
+    if (t >= totalDur) {
+      _cov.animating = false;
+      _cov.particles = [];
+      _cov.animId = null;
+      if (onComplete) onComplete();
+      return;
+    }
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    if (t < dissolveDur) {
+      var p = t / dissolveDur;
+      for (var i = 0; i < particles.length; i++) {
+        var pt = particles[i];
+        pt.x += pt.vx * 0.4;
+        pt.y += pt.vy * 0.4;
+        pt.vx *= 0.96; pt.vy *= 0.96;
+        pt.alpha = 1 - p * 0.4;
+      }
+    } else {
+      var p = (t - dissolveDur) / reformDur;
+      var ease = 1 - Math.pow(1 - p, 3);
+      for (var i = 0; i < particles.length; i++) {
+        var pt = particles[i];
+        pt.x += (pt.tx - pt.x) * ease * 0.12;
+        pt.y += (pt.ty - pt.y) * ease * 0.12;
+        pt.alpha = 0.5 + p * 0.5;
+      }
+    }
+
+    covRenderParticles(ctx, particles);
+    _cov.animId = requestAnimationFrame(frame);
+  }
+  _cov.animId = requestAnimationFrame(frame);
+}
+
+function covCreateParticles(W, H) {
+  var particles = [];
+  var topics = _cov.topics;
+  var coverage = covComputeCoverage();
+  var nt = topics.length;
+
+  // Capture current positions from the source view
+  var srcView = (_cov.view === 'trend') ? 'radar' : 'trend'; // opposite of destination
+
+  for (var i = 0; i < nt; i++) {
+    var pct = coverage[topics[i].name] || 0;
+    var count = Math.max(2, Math.min(80, Math.round(pct * 60)));
+    var color = COV_COLORS[i % COV_COLORS.length];
+
+    for (var j = 0; j < count; j++) {
+      var sx, sy;
+      if (srcView === 'radar' || !_cov.areaLayout) {
+        // Source from radar positions
+        var a = (i / nt) * Math.PI * 2 - Math.PI / 2;
+        var v = Math.min(pct, 2.5);
+        var cx = W / 2, cy = H / 2, R = (Math.min(W, H) - 140) / 2;
+        var r = v * R * (0.2 + Math.random() * 0.8);
+        sx = cx + Math.cos(a + (Math.random() - 0.5) * 0.4) * r;
+        sy = cy + Math.sin(a + (Math.random() - 0.5) * 0.4) * r;
+      } else {
+        // Source from area chart positions
+        var lay = _cov.areaLayout;
+        var epIdx = Math.floor(Math.random() * lay.ne);
+        sx = lay.pad.left + (lay.ne > 1 ? (epIdx / (lay.ne - 1)) * lay.plotW : lay.plotW / 2);
+        sy = lay.pad.top + lay.plotH - ((lay.values[epIdx] || 0) / lay.maxVal) * lay.plotH;
+        sx += (Math.random() - 0.5) * 15;
+        sy += (Math.random() - 0.5) * 15;
+      }
+
+      particles.push({
+        x: sx, y: sy,
+        vx: (Math.random() - 0.5) * 5,
+        vy: (Math.random() - 0.5) * 5,
+        tx: 0, ty: 0,
+        color: color, size: 1.5 + Math.random() * 2, alpha: 1,
+        topicIdx: i
+      });
+    }
+  }
+  return particles;
+}
+
+function covCalcTargets(particles, W, H) {
+  var topics = _cov.topics;
+  var nt = topics.length;
+  var coverage = covComputeCoverage();
+
+  if (_cov.view === 'radar') {
+    var cx = W / 2, cy = H / 2;
+    var R = (Math.min(W, H) - 140) / 2;
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var ti = p.topicIdx;
+      var a = (ti / nt) * Math.PI * 2 - Math.PI / 2;
+      var v = Math.min(coverage[topics[ti].name] || 0, 2.5);
+      var r = v * R * (0.2 + Math.random() * 0.8);
+      p.tx = cx + Math.cos(a + (Math.random() - 0.5) * 0.35) * r;
+      p.ty = cy + Math.sin(a + (Math.random() - 0.5) * 0.35) * r;
+    }
+  } else {
+    var pad = { top: 44, right: 50, bottom: 50, left: 60 };
+    var plotW = W - pad.left - pad.right;
+    var plotH = H - pad.top - pad.bottom;
+    var ti = _cov.trendTopic || 0;
+    var topic = topics[ti];
+    var eps = covGetSelectedEpisodes();
+    var ne = eps.length;
+    var values = eps.map(function(ep) { var c = ep.coverage[topic.name]; return c ? c.pct : 0; });
+    var maxVal = Math.max(1.3, Math.max.apply(null, values)) * 1.1;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var epIdx = Math.floor(Math.random() * ne);
+      var xx = pad.left + (ne > 1 ? (epIdx / (ne - 1)) * plotW : plotW / 2);
+      var yy = pad.top + plotH - (values[epIdx] / maxVal) * plotH;
+      p.tx = xx + (Math.random() - 0.5) * 20;
+      p.ty = yy + Math.random() * (pad.top + plotH - yy) * 0.8;
+    }
+  }
+}
+
+function covRenderParticles(ctx, particles) {
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    ctx.globalAlpha = Math.max(0, p.alpha);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ===== HOVER & CLICK =====
+
+function covCanvasHover(e) {
+  if (!_cov || !_cov.loaded || _cov.animating) return;
+  var canvas = document.getElementById('cov-canvas');
+  var rect = canvas.getBoundingClientRect();
+  var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  var tip = document.getElementById('cov-tooltip');
+
+  if (_cov.view === 'radar' && _cov.radarLayout) {
+    var lay = _cov.radarLayout;
+    var bestDist = 999, bestIdx = -1;
+    for (var i = 0; i < lay.nt; i++) {
+      var a = (i / lay.nt) * Math.PI * 2 - Math.PI / 2;
+      // Check dot
+      var v = Math.min(lay.vals[i], 2.5);
+      var px = lay.cx + Math.cos(a) * v * lay.R;
+      var py = lay.cy + Math.sin(a) * v * lay.R;
+      var d = Math.sqrt((mx-px)*(mx-px) + (my-py)*(my-py));
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+      // Check along spoke
+      var lr = lay.R + 40;
+      var dx = Math.cos(a), dy = Math.sin(a);
+      var proj = (mx - lay.cx) * dx + (my - lay.cy) * dy;
+      if (proj > 0 && proj < lr) {
+        var perpX = (mx - lay.cx) - proj * dx;
+        var perpY = (my - lay.cy) - proj * dy;
+        var pd = Math.sqrt(perpX*perpX + perpY*perpY);
+        if (pd < 18 && pd < bestDist) { bestDist = pd; bestIdx = i; }
+      }
+    }
+    if (bestDist > 40) bestIdx = -1;
+
+    if (bestIdx !== _cov.hoverTopic) {
+      _cov.hoverTopic = bestIdx;
+      covDraw();
+    }
+    if (bestIdx >= 0) {
+      canvas.style.cursor = 'pointer';
+      var topic = _cov.topics[bestIdx];
+      var pct = lay.vals[bestIdx];
+      var clr = COV_COLORS[bestIdx % COV_COLORS.length];
+      tip.innerHTML = '<div style="color:'+clr+';font-weight:700">'+esc(topic.name)+'</div>'
+        + '<div>'+Math.round(pct * 100)+'% avg coverage</div>'
+        + '<div style="color:#666">Target: '+topic.alloc_min+'m / ~'+topic.target_words+' words</div>'
+        + '<div style="color:#555;font-size:9px">Click to view trend</div>';
+      tip.style.display = 'block';
+      var wr = wrap_rect();
+      tip.style.left = (e.clientX - wr.left + 14) + 'px';
+      tip.style.top = (e.clientY - wr.top - 10) + 'px';
+    } else {
+      canvas.style.cursor = 'crosshair';
+      tip.style.display = 'none';
+    }
+
+  } else if (_cov.view === 'trend' && _cov.areaLayout) {
+    var lay = _cov.areaLayout;
+    var relX = (mx - lay.pad.left) / lay.plotW;
+    var idx = Math.round(relX * Math.max(1, lay.ne - 1));
+    if (idx < 0) idx = 0; if (idx >= lay.ne) idx = lay.ne - 1;
+
+    if (relX >= -0.05 && relX <= 1.05) {
+      if (idx !== _cov.trendHover) { _cov.trendHover = idx; covDraw(); }
+      canvas.style.cursor = 'crosshair';
+      var ti = _cov.trendTopic;
+      var topic = _cov.topics[ti];
+      var ep = lay.eps[idx];
+      var cov = ep.coverage[topic.name];
+      var pct = cov ? cov.pct : 0;
+      var actual = cov ? cov.actual_words : 0;
+      var target = cov ? cov.target_words : 0;
+      var clr = COV_COLORS[ti % COV_COLORS.length];
+      tip.innerHTML = '<div style="color:'+clr+';font-weight:700">'+ep.date+'</div>'
+        + '<div>'+Math.round(pct*100)+'% coverage</div>'
+        + '<div style="color:#666">'+actual+' / '+target+' words</div>';
+      tip.style.display = 'block';
+      var wr = wrap_rect();
+      tip.style.left = (e.clientX - wr.left + 14) + 'px';
+      tip.style.top = (e.clientY - wr.top - 10) + 'px';
+    } else {
+      _cov.trendHover = -1; covDraw();
+      tip.style.display = 'none';
+    }
+  }
+}
+
+function wrap_rect() { return document.getElementById('cov-wrap').getBoundingClientRect(); }
+
+function covCanvasClick(e) {
+  if (!_cov || !_cov.loaded || _cov.animating) return;
+  if (_cov.view === 'radar' && _cov.hoverTopic >= 0) {
+    _cov.trendTopic = _cov.hoverTopic;
+    _cov.hoverTopic = -1;
+    document.getElementById('cov-tooltip').style.display = 'none';
+    covSetView('trend');
+  }
+}
+
+window.addEventListener('resize', function() {
+  if (!_cov || !_cov.loaded) return;
+  covDraw();
+});
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'history') loadHistory();
+  if (tab === 'coverage') { covInit(); }
+  if (tab === 'settings') { loadPromptConfig(); renderShowFormat(); }
+  if (tab === 'learning') { initLearning(); }
+}
+
+function copyDigestUrl(url, btn) {
+  const full = window.location.origin + url;
+  navigator.clipboard.writeText(full).then(function() {
+    btn.classList.add('copied');
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.classList.remove('copied'); btn.textContent = 'Copy URL'; }, 2000);
+  });
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ===== LATEST TAB =====
+let _prepActive = false;
+
+function segmentCard() {
+  if (!_showFormat) return '';
+  const segs = _showFormat.segments;
+  const introMin = _showFormat.intro_minutes;
+  const outroMin = _showFormat.outro_minutes;
+  const isShort = introMin < 1;
+
+  let s = '<div class="card"><div class="card-label">Show Format</div>';
+  // Intro
+  const introDur = isShort ? '~30s' : '~' + Math.round(introMin) + ' min';
+  const introText = isShort
+    ? 'Welcome to ' + esc(SHOW_TITLE) + '! Here\\'s what\\'s happening.'
+    : 'Welcome to ' + esc(SHOW_TITLE) + ', your daily knowledge briefing. Let\\'s dive in.';
+  s += '<div style="font-size:11px;color:var(--text-dim);margin-top:6px;padding:6px 8px;background:rgba(255,255,255,0.03);border-radius:4px;">';
+  s += '<span style="color:var(--gold);font-weight:600;">Intro (' + introDur + ')</span><br>' + introText;
+  s += '</div>';
+  // Segments
+  s += '<div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-size:11px;margin-top:8px;">';
+  let total = introMin + outroMin;
+  for (const seg of segs) {
+    total += seg.minutes;
+    s += '<span style="color:var(--text);">' + esc(seg.name) + '</span>';
+    s += '<span style="color:var(--text-dim);text-align:right;">~' + seg.minutes + ' min</span>';
+  }
+  s += '</div>';
+  // Outro
+  const outroDur = isShort ? '~30s' : '~' + Math.round(outroMin) + ' min';
+  const outroText = isShort
+    ? 'That\\'s your morning briefing from ' + esc(SHOW_TITLE) + '! See you tomorrow.'
+    : 'That\\'s all for today\\'s ' + esc(SHOW_TITLE) + '. Thanks for listening — we\\'ll be back tomorrow with more. Until then, stay curious.';
+  s += '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;padding:6px 8px;background:rgba(255,255,255,0.03);border-radius:4px;">';
+  s += '<span style="color:var(--gold);font-weight:600;">Outro (' + outroDur + ')</span><br>' + outroText;
+  s += '</div>';
+  // Total
+  s += '<div style="display:grid;grid-template-columns:1fr auto;gap:0 12px;font-size:11px;margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">';
+  s += '<span style="color:var(--gold);font-weight:600;">Total</span>';
+  s += '<span style="color:var(--gold);font-weight:600;text-align:right;">~' + Math.round(total) + ' min</span>';
+  s += '</div></div>';
+  return s;
+}
+
+function topicBreakdown(d) {
+  if (!d || !d.segment_counts || !_showFormat) return '';
+  const sc = d.segment_counts;
+  // Build duration map from show format
+  const durMap = {};
+  const order = [];
+  for (const seg of _showFormat.segments) {
+    durMap[seg.name] = seg.minutes;
+    order.push(seg.name);
+  }
+  let rows = '';
+  let totalArticles = 0, totalMins = 0;
+  for (const topic of order) {
+    const count = sc[topic] || 0;
+    if (count === 0) continue;
+    const mins = durMap[topic] || 1;
+    const words = mins * 150;
+    totalArticles += count;
+    totalMins += mins;
+    rows += '<span style="color:var(--text);">' + esc(topic) + '</span>';
+    rows += '<span style="color:var(--text-dim);text-align:right;">' + count + '</span>';
+    rows += '<span style="color:var(--text-dim);text-align:right;">~' + words + '</span>';
+    rows += '<span style="color:var(--text-dim);text-align:right;">~' + mins + ' min</span>';
+  }
+  if (!rows) return '';
+  let s = '<div class="card" style="margin-top:8px;"><div class="card-label">Topic Breakdown</div>';
+  s += '<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 12px;font-size:11px;margin-top:6px;">';
+  s += '<span style="color:var(--accent);font-weight:600;">Topic</span>';
+  s += '<span style="color:var(--accent);font-weight:600;text-align:right;">Articles</span>';
+  s += '<span style="color:var(--accent);font-weight:600;text-align:right;">Words</span>';
+  s += '<span style="color:var(--accent);font-weight:600;text-align:right;">Duration</span>';
+  s += rows;
+  s += '</div>';
+  s += '<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:0 12px;font-size:11px;margin-top:6px;border-top:1px solid var(--border);padding-top:4px;">';
+  s += '<span style="color:var(--gold);font-weight:600;">Total</span>';
+  s += '<span style="color:var(--gold);font-weight:600;text-align:right;">' + totalArticles + '</span>';
+  s += '<span style="color:var(--gold);font-weight:600;text-align:right;">~' + (totalMins*150) + '</span>';
+  s += '<span style="color:var(--gold);font-weight:600;text-align:right;">~' + totalMins + ' min</span>';
+  s += '</div></div>';
+  return s;
+}
+
+async function loadLatest() {
+  let res, data;
+  try {
+    res = await fetch(apiUrl('/api/latest-episode'));
+    data = await res.json();
+  } catch(e) {
+    console.error('loadLatest fetch error:', e);
+    document.getElementById('left-col').innerHTML = '<div class="empty"><p>Failed to load. Check console.</p></div>';
+    return;
+  }
+  const left = document.getElementById('left-col');
+
+  // If preparation workflow is active, render that instead
+  if (data.preparation && data.preparation.active) {
+    _prepActive = true;
+    renderPreparation(data.preparation);
+    updateGenBtn(null, true);
+    renderRightCol(data.preparation.digest);
+    return;
+  }
+
+  _prepActive = false;
+
+  if (!data.episode && !data.digest) {
+    left.innerHTML = '<div class="empty"><div class="owl">&#x1F989;</div><p>No episodes yet.<br>Click <strong>Prepare Digest</strong> to fetch today\\'s newsletters, then upload audio from NotebookLM.</p></div>';
+    document.getElementById('right-col').innerHTML = '';
+    updateGenBtn(null, false);
+    return;
+  }
+
+  let h = '';
+
+  if (data.digest) {
+    const d = data.digest;
+    h += '<div class="card"><div class="card-label">Today\\'s Digest</div><div class="digest-row"><div>';
+    h += '<div class="digest-stats">' + d.article_count + ' articles &middot; ' + (d.email_count||0) + ' emails &middot; ' + d.total_words.toLocaleString() + ' words</div>';
+    h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
+    h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
+    h += '<a class="dl-btn" href="' + d.download_url.replace('.html', '.md') + '" download title="Download .md">&#x2B07;</a></div></div></div>';
+  }
+
+  if (data.episode) {
+    const ep = data.episode;
+    const dt = new Date(ep.date + 'T00:00:00');
+    const dd = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const mb = (ep.file_size_bytes / 1048576).toFixed(1);
+    h += '<div class="card"><div class="card-label">Latest Episode</div>';
+    h += '<div class="ep-title">' + esc(SHOW_TITLE) + ' &mdash; ' + esc(dd) + '</div>';
+    if (ep.rss_summary) h += '<div class="ep-desc">' + esc(ep.rss_summary) + '</div>';
+    h += '<div class="ep-meta"><span>' + (ep.duration_formatted||'') + '</span><span>' + mb + ' MB</span><span>' + esc(ep.topics_summary||'') + '</span></div>';
+    h += '<audio controls preload="metadata" src="' + ep.audio_url + '"></audio></div>';
+  }
+
+  left.innerHTML = h;
+  updateGenBtn(data.digest, false);
+  renderRightCol(data.digest);
+}
+
+function renderPreparation(prep) {
+  const left = document.getElementById('left-col');
+  let h = '';
+
+  if (prep.state === 'generating') {
+    h += '<div class="card"><div class="card-label">Preparing Digest</div>';
+    h += '<p style="color:var(--text-dim);font-size:13px;">Processing... fetching newsletters and generating digest.</p>';
+    h += '</div>';
+    left.innerHTML = h;
+    // Poll until generation finishes
+    setTimeout(() => loadLatest(), 5000);
+    return;
+  }
+
+  if (prep.state === 'failed') {
+    h += '<div class="card"><div class="card-label" style="color:#e74c3c;">Preparation Failed</div>';
+    h += '<p style="color:var(--text-dim);font-size:13px;">' + esc(prep.error || 'Unknown error.') + '</p>';
+    h += '<p style="margin-top:8px;font-size:12px;color:var(--text-dim);">Click <strong>Cancel</strong> to return, or try again.</p>';
+    h += '</div>';
+    left.innerHTML = h;
+    renderRightCol(null);
+    return;
+  }
+
+  // Digest card (shared by digest_ready and audio_uploaded)
+  if (prep.digest) {
+    const d = prep.digest;
+    h += '<div class="card"><div class="card-label">New Digest Ready</div><div class="digest-row"><div>';
+    h += '<div class="digest-stats">' + d.article_count + ' articles &middot; ' + (d.email_count||0) + ' emails &middot; ' + d.total_words.toLocaleString() + ' words</div>';
+    h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
+    h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
+    h += '<a class="dl-btn" href="' + d.download_url + '" download title="Download .md">&#x2B07;</a></div></div></div>';
+  }
+
+  if (prep.state === 'digest_ready') {
+    // Upload section
+    h += '<div class="card"><div class="card-label">Upload Audio</div>';
+    h += '<div class="upload-row"><input type="file" id="mp3-file" accept=".mp3,.m4a,.wav,.ogg,.webm">';
+    h += '<button class="up-btn" id="up-btn" onclick="uploadEp(\\'' + prep.date + '\\')">Upload</button></div>';
+    h += '<div class="upload-status" id="up-status"></div></div>';
+  }
+
+  if (prep.state === 'audio_uploaded') {
+    // Audio preview + publish button
+    h += '<div class="card"><div class="card-label">Audio Preview</div>';
+    if (prep.audio) {
+      const mb = (prep.audio.file_size_bytes / 1048576).toFixed(1);
+      h += '<div class="ep-meta"><span>' + mb + ' MB</span></div>';
+      h += '<audio controls preload="metadata" src="' + prep.audio.audio_url + '"></audio>';
+    }
+    if (prep.existing_episode) {
+      h += '<div style="margin-top:10px;padding:8px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:6px;font-size:11px;color:var(--yellow);">';
+      h += 'This will replace today\\'s existing episode in the RSS feed and History.';
+      h += '</div>';
+    }
+    h += '<div style="margin-top:12px;">';
+    h += '<button class="up-btn" onclick="publishEp(\\'' + prep.date + '\\',' + (prep.existing_episode?'true':'false') + ')">Publish to RSS</button>';
+    h += '</div></div>';
+  }
+
+  left.innerHTML = h;
+}
+
+// ===== RIGHT COLUMN: Topic Breakdown + Radar =====
+function renderRightCol(digest) {
+  const box = document.getElementById('right-col');
+  // Render topic breakdown above radar
+  box.innerHTML = '<div id="topic-breakdown-slot"></div><div id="radar-slot"></div>';
+  const tbSlot = document.getElementById('topic-breakdown-slot');
+  tbSlot.innerHTML = topicBreakdown(digest);
+  loadRadar(radarMode, 'radar-slot');
+}
+
+// ===== RADAR =====
+async function loadRadar(mode, containerId) {
+  containerId = containerId || 'right-col';
+  var canvasId = 'radar-cv-' + containerId;
+  if (containerId === 'right-col') radarMode = mode || 'latest';
+  mode = mode || 'latest';
+  const box = document.getElementById(containerId);
+  try {
+    let tcUrl = apiUrl('/api/topic-coverage', 'mode=' + mode);
+    if (containerId === 'hist-radar') tcUrl += '&published_only=true';
+    const res = await fetch(tcUrl);
+    const data = await res.json();
+    const topics = data.topics;
+    if (!topics) { box.innerHTML = ''; return; }
+
+    let h = '<div class="radar-card"><div class="radar-hdr"><div class="card-label">Topic Coverage</div>';
+    if (containerId !== 'hist-radar') {
+      h += '<div class="radar-toggle">';
+      h += '<button class="' + (mode==='latest'?'active':'') + '" onclick="loadRadar(\\'latest\\',\\'' + containerId + '\\')">Latest</button>';
+      h += '<button class="' + (mode==='cumulative'?'active':'') + '" onclick="loadRadar(\\'cumulative\\',\\'' + containerId + '\\')">All Time</button>';
+      h += '</div>';
+    }
+    h += '</div>';
+    h += '<canvas id="' + canvasId + '" width="500" height="500" style="display:block;margin:0 auto;"></canvas>';
+    h += '<div class="radar-legend"><span><span class="sw" style="background:rgba(196,160,82,0.6);"></span>Capacity (100%)</span>';
+    h += '<span><span class="sw" style="background:rgba(96,165,250,0.6);"></span>Actual</span></div>';
+    const lbl = mode==='latest' ? 'latest digest' : data.digests_analyzed + ' digests';
+    h += '<div class="radar-stats">' + lbl + ' &middot; ' + data.total_articles + ' articles' + (!data.has_data?' &middot; no coverage data yet':'') + '</div>';
+
+    if (data.suggestions && data.suggestions.length > 0) {
+      const adds = data.suggestions.filter(s => s.action==='subscribe');
+      const trims = data.suggestions.filter(s => s.action==='unsubscribe');
+      if (adds.length) {
+        h += '<div class="sug-label">Add Sources</div>';
+        for (const s of adds) {
+          h += '<div class="sug-item subscribe"><span class="pill">+ Add</span>';
+          h += '<span><strong>' + esc(s.topic) + '</strong> &mdash; ' + esc(s.reason) + '</span></div>';
+        }
+      }
+      if (trims.length) {
+        h += '<div class="sug-label">Trim Sources</div>';
+        for (const s of trims) {
+          h += '<div class="sug-item unsubscribe"><span class="pill">- Trim</span>';
+          h += '<span><strong>' + esc(s.topic) + '</strong> &mdash; ' + esc(s.reason) + '</span></div>';
+        }
+      }
+    } else if (data.has_data) {
+      h += '<div class="sug-label">Recommendations</div><div class="no-sug">Coverage is well balanced.</div>';
+    }
+
+    h += '</div>';
+    box.innerHTML = h;
+    drawRadar(topics, data.has_data, canvasId);
+  } catch (e) {
+    console.error('Radar error', e);
+    box.innerHTML = '';
+  }
+}
+
+function drawRadar(topics, hasActual, canvasId) {
+  const cv = document.getElementById(canvasId || 'radar-cv-right-col');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const cx = W/2, cy = H/2, R = Math.min(cx,cy)-75, n = topics.length, mx = 100;
+  ctx.clearRect(0,0,W,H);
+
+  const ang = i => (Math.PI*2*i/n) - Math.PI/2;
+  const pt = (i,p) => { const a=ang(i), r=(Math.min(p,mx)/mx)*R; return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; };
+
+  // Grid rings at 25%, 50%, 75%, 100%
+  [25,50,75,100].forEach(r => {
+    ctx.beginPath();
+    for (let i=0;i<=n;i++) { const [x,y]=pt(i%n,r); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+    ctx.closePath();
+    ctx.strokeStyle = r===100 ? '#4a4d5e' : '#2e3140';
+    ctx.lineWidth = r===100 ? 1.2 : 0.5;
+    ctx.stroke();
+    if (r===100) { ctx.font='8px monospace'; ctx.fillStyle='#5a5d6e'; ctx.textAlign='left'; ctx.fillText('100%',cx+3,cy-R-2); }
+    if (r===50) { ctx.font='8px monospace'; ctx.fillStyle='#3a3d4e'; ctx.textAlign='left'; ctx.fillText('50%',cx+3,cy-((r/mx)*R)-2); }
+  });
+
+  // Spokes
+  for (let i=0;i<n;i++) {
+    const [x,y]=pt(i,mx);
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.strokeStyle='#2e3140'; ctx.lineWidth=0.5; ctx.stroke();
+  }
+
+  // Target (gold) — always a circle at 100%
+  ctx.beginPath();
+  for (let i=0;i<=n;i++) { const [x,y]=pt(i%n,100); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+  ctx.closePath(); ctx.fillStyle='rgba(196,160,82,0.08)'; ctx.fill();
+  ctx.strokeStyle='rgba(196,160,82,0.6)'; ctx.lineWidth=2; ctx.stroke();
+
+  // Actual (blue)
+  if (hasActual) {
+    ctx.beginPath();
+    for (let i=0;i<=n;i++) { const [x,y]=pt(i%n,topics[i%n].actual_pct); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
+    ctx.closePath(); ctx.fillStyle='rgba(96,165,250,0.12)'; ctx.fill();
+    ctx.strokeStyle='rgba(96,165,250,0.7)'; ctx.lineWidth=2; ctx.stroke();
+    for (let i=0;i<n;i++) { const [x,y]=pt(i,topics[i].actual_pct); ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fillStyle='rgba(96,165,250,0.9)'; ctx.fill(); }
+  }
+
+  // Labels (topic name with allocated minutes)
+  ctx.font='10px monospace'; ctx.fillStyle='#c8c8cc';
+  for (let i=0;i<n;i++) {
+    const a=ang(i), lr=R+30, x=cx+lr*Math.cos(a), y=cy+lr*Math.sin(a);
+    ctx.textAlign = Math.abs(Math.cos(a))<0.15?'center':Math.cos(a)>0?'left':'right';
+    ctx.textBaseline = Math.abs(Math.sin(a))<0.15?'middle':Math.sin(a)>0?'top':'bottom';
+    ctx.fillText(topics[i].name,x,y);
+  }
+}
+
+// ===== HISTORY TAB =====
+function getWeekRange() {
+  // Compute current PST week (Mon-Sun) using UTC-8
+  const now = new Date(Date.now() - 8*3600000);
+  const day = now.getUTCDay(); // 0=Sun,...,6=Sat
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const mon = new Date(now);
+  mon.setUTCDate(mon.getUTCDate() + diffToMon);
+  const sun = new Date(mon);
+  sun.setUTCDate(sun.getUTCDate() + 6);
+  const fmt = d => d.toISOString().slice(0,10);
+  return { mon: fmt(mon), sun: fmt(sun) };
+}
+
+async function loadHistory() {
+  const box = document.getElementById('hist-content');
+  try {
+    const [histRes, weeksRes] = await Promise.all([
+      fetch(apiUrl('/api/history')),
+      fetch(apiUrl('/api/export-weeks')),
+    ]);
+    const data = await histRes.json();
+    const pendingWeeks = await weeksRes.json();
+
+    if ((!data.rows || data.rows.length===0) && pendingWeeks.length===0) { box.innerHTML='<div class="empty"><p>No digests yet.</p></div>'; loadRadar('cumulative', 'hist-radar'); return; }
+
+    const week = getWeekRange();
+    const thisWeek = (data.rows||[]).filter(r => r.has_audio && r.date >= week.mon && r.date <= week.sun);
+    const weekBytes = thisWeek.reduce((s, r) => s + (r.file_size_bytes || 0), 0);
+    const weekMB = (weekBytes / 1048576).toFixed(1);
+
+    let h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">';
+    h += '<span style="font-size:12px;color:var(--text-dim);">' + thisWeek.length + ' episodes this week &middot; ' + weekMB + ' MB</span>';
+    if (thisWeek.length > 0) {
+      h += '<button class="btn" onclick="window.location=\\'' + apiUrl('/api/export-episodes') + '\\'">Export</button>';
+    }
+    h += '</div>';
+
+    // Pending exports section
+    if (pendingWeeks.length > 0) {
+      h += '<div class="card" style="margin-bottom:16px;padding:16px;"><div class="card-label">Pending Exports</div>';
+      h += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">';
+      for (const w of pendingWeeks) {
+        const mb = (w.size_bytes / 1048576).toFixed(1);
+        const ts = w.created_at ? new Date(w.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+        h += '<div style="display:flex;align-items:center;justify-content:space-between;">';
+        h += '<span style="font-size:12px;color:var(--text);">' + esc(w.week_label) + ' &middot; ' + mb + ' MB';
+        if (ts) h += ' &middot; <span style="color:var(--text-dim);">' + esc(ts) + '</span>';
+        h += '</span>';
+        h += '<a class="btn" href="' + apiUrl('/api/download-export/' + encodeURIComponent(w.filename)) + '">Download</a>';
+        h += '</div>';
+      }
+      h += '</div></div>';
+    }
+
+    h += '<table class="htable"><thead><tr><th>Date</th><th>Digest</th><th>Audio</th><th>Digest Details</th><th>Audio Details</th></tr></thead><tbody>';
+    for (const r of data.rows) {
+      const dt = new Date(r.date+'T00:00:00');
+      const dd = dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+
+      const digestHtmlUrl = '/digests/'+r.date+'.html?show_id='+encodeURIComponent(SHOW_ID);
+      const digestMdUrl = '/digests/'+r.date+'.md?show_id='+encodeURIComponent(SHOW_ID);
+      const digestC = r.has_digest
+        ? '<span class="digest-btns" style="gap:4px;"><button class="copy-url-btn" style="padding:4px 8px;font-size:11px;" onclick="copyDigestUrl(\\''+digestHtmlUrl+'\\', this)">Copy URL</button><a class="h-link digest" href="'+digestMdUrl+'" download title="Download .md">&#x2B07;</a></span>'
+        : '<span class="h-badge no">none</span>';
+
+      let audioC;
+      if (r.has_audio) {
+        const url = r.gcs_url || ('/episodes/noctua-'+r.date+'.mp3');
+        audioC = '<a class="h-link audio" href="'+url+'" target="_blank">Play</a>';
+      } else {
+        audioC = '<span class="h-badge no">none</span>';
+      }
+
+      const dDetail = r.has_digest
+        ? '<span class="h-detail">'+r.article_count+' articles &middot; '+(r.email_count||0)+' emails &middot; '+r.total_words.toLocaleString()+' words</span>'
+        : '<span class="h-detail">&mdash;</span>';
+
+      let aDetail = '&mdash;';
+      if (r.has_audio) {
+        const mb = (r.file_size_bytes/1048576).toFixed(1);
+        aDetail = r.duration_formatted+' &middot; '+mb+' MB';
+        if (r.rss_summary) aDetail += '<br><span style="color:var(--text);">'+esc(r.rss_summary)+'</span>';
+      }
+
+      let topics = '';
+      if (r.topics_summary) topics = '<br><span style="color:var(--text-dim);font-size:10px;">'+esc(r.topics_summary)+'</span>';
+
+      h += '<tr><td class="h-date">'+esc(dd)+'</td><td>'+digestC+'</td><td>'+audioC+'</td>';
+      h += '<td>'+dDetail+topics+'</td><td class="h-detail">'+aDetail+'</td></tr>';
+    }
+    h += '</tbody></table>';
+    box.innerHTML = h;
+    loadRadar('cumulative', 'hist-radar');
+  } catch (e) {
+    console.error('History error', e);
+    box.innerHTML = '<div class="empty"><p>Failed to load history.</p></div>';
+  }
+}
+
+// ===== ACTIONS =====
+let _digestState = null; // tracks current digest state for button logic
+
+function updateGenBtn(digest, prepActive) {
+  _digestState = digest;
+  const btn = document.getElementById('gen-btn');
+  if (!btn) return;
+  if (prepActive) {
+    btn.textContent = 'Cancel';
+    btn.disabled = false;
+    btn.onclick = () => cancelPrep();
+  } else if (digest) {
+    btn.textContent = 'Prepare New Digest';
+    btn.disabled = false;
+    btn.onclick = () => startPrep();
+  } else {
+    btn.textContent = 'Prepare Digest';
+    btn.disabled = false;
+    btn.onclick = () => startPrep();
+  }
+}
+
+async function startPrep() {
+  const btn = document.getElementById('gen-btn');
+  _prepActive = true;
+  btn.disabled = true; btn.textContent = 'Preparing...';
+  try {
+    const res = await fetch(apiUrl('/api/start-preparation'), {method:'POST'});
+    const data = await res.json();
+    if (!res.ok) {
+      _prepActive = false;
+      btn.disabled = false;
+      updateGenBtn(_digestState, false);
+      if (data.error) alert(data.error);
+      return;
+    }
+    loadLatest();
+  } catch(e) {
+    _prepActive = false;
+    btn.disabled = false;
+    updateGenBtn(_digestState, false);
+    alert('Failed to start preparation: ' + e.message);
+  }
+}
+
+async function cancelPrep() {
+  const btn = document.getElementById('gen-btn');
+  btn.disabled = true; btn.textContent = 'Cancelling...';
+  try {
+    await fetch(apiUrl('/api/cancel-preparation'), {method:'POST'});
+  } catch(e) {}
+  _prepActive = false;
+  loadLatest();
+}
+
+async function publishEp(date, hasExisting) {
+  if (hasExisting) {
+    if (!confirm('There is already a published episode for today. Publishing will replace it in the RSS feed and History. Continue?')) return;
+  }
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Publishing...';
+  const form = new FormData(); form.append('date', date); form.append('show_id', SHOW_ID);
+  try {
+    const res = await fetch('/api/publish-episode', {method:'POST', body:form});
+    const data = await res.json();
+    if (res.ok) {
+      _prepActive = false;
+      loadLatest();
+    } else {
+      btn.disabled = false; btn.textContent = 'Publish to RSS';
+      alert(data.error || 'Publish failed.');
+    }
+  } catch(e) {
+    btn.disabled = false; btn.textContent = 'Publish to RSS';
+  }
+}
+
+async function uploadEp(date) {
+  const fi = document.getElementById('mp3-file');
+  const btn = document.getElementById('up-btn');
+  const st = document.getElementById('up-status');
+  if (!fi.files.length) { st.className='upload-status error'; st.textContent='Select a file first.'; return; }
+  btn.disabled=true; btn.textContent='Uploading...';
+  st.className='upload-status'; st.textContent='Uploading and processing...';
+  const form = new FormData(); form.append('file',fi.files[0]); form.append('date',date); form.append('show_id',SHOW_ID);
+  try {
+    const res = await fetch('/api/upload-episode',{method:'POST',body:form});
+    const data = await res.json();
+    if (res.ok) {
+      st.className='upload-status success';
+      st.textContent = data.message;
+      setTimeout(() => loadLatest(), 1000);
+    } else { st.className='upload-status error'; st.textContent=data.error||'Upload failed.'; }
+  } catch(e) { st.className='upload-status error'; st.textContent='Network error.'; }
+  btn.disabled=false; btn.textContent='Upload';
+}
+
+async function updateHealth() {
+  try {
+    const h = await (await fetch('/health')).json();
+    const btn = document.getElementById('gen-btn');
+    const info = document.getElementById('sched-info');
+    if (!btn.disabled) {
+      if (_prepActive && h.generation_running) { btn.disabled=true; btn.textContent='Preparing...'; }
+      else if (_prepActive) { updateGenBtn(null, true); }
+      else if (_digestState !== null) { updateGenBtn(_digestState, false); }
+    }
+    if (h.next_scheduled_run) {
+      const next = new Date(h.next_scheduled_run);
+      info.textContent = 'Next: ' + next.toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    }
+  } catch(e) {}
+}
+
+// ===== SETTINGS TAB =====
+function renderShowFormat() {
+  const slot = document.getElementById('show-format-slot');
+  if (slot) slot.innerHTML = segmentCard();
+}
+
+async function loadPromptConfig() {
+  try {
+    const res = await fetch(apiUrl('/api/prompt-config'));
+    const data = await res.json();
+    document.getElementById('prompt-system').value = data.system_prompt || '';
+    document.getElementById('prompt-preamble').value = data.podcast_preamble || '';
+    const st = document.getElementById('prompt-save-status');
+    st.className = 'upload-status'; st.textContent = '';
+  } catch(e) {
+    console.error('Failed to load prompt config', e);
+  }
+}
+
+async function savePromptConfig() {
+  const btn = document.getElementById('save-prompts-btn');
+  const st = document.getElementById('prompt-save-status');
+  const body = {
+    system_prompt: document.getElementById('prompt-system').value,
+    podcast_preamble: document.getElementById('prompt-preamble').value,
+  };
+  btn.disabled = true; btn.textContent = 'Saving...';
+  st.className = 'upload-status'; st.textContent = '';
+  try {
+    const res = await fetch(apiUrl('/api/prompt-config'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      st.className = 'upload-status success'; st.textContent = 'Saved!';
+      setTimeout(() => { st.textContent = ''; }, 3000);
+    } else {
+      st.className = 'upload-status error'; st.textContent = data.error || 'Save failed.';
+    }
+  } catch(e) {
+    st.className = 'upload-status error'; st.textContent = 'Network error.';
+  }
+  btn.disabled = false; btn.textContent = 'Save';
+}
+
+loadShowFormat().then(() => {
+  loadLatest();
+  updateHealth();
+});
+setInterval(updateHealth, 10000);
+
+// ===== LEARNING TAB =====
+var _learn = { loaded: false, episodes: [], current: null, data: null };
+
+async function initLearning() {
+  if (_learn.loaded && _learn.episodes.length > 0) return;
+  try {
+    var resp = await fetch('/api/learning/episodes?show_id=' + SHOW_ID);
+    var data = await resp.json();
+    _learn.episodes = data.dates || [];
+    var sel = document.getElementById('learn-episode-select');
+    sel.innerHTML = '';
+    if (_learn.episodes.length === 0) {
+      sel.innerHTML = '<option value="">No episodes analyzed yet</option>';
+      document.getElementById('learn-status').textContent = 'Run an episode analysis first.';
+      return;
+    }
+    _learn.episodes.forEach(function(d) {
+      var opt = document.createElement('option');
+      opt.value = d; opt.textContent = d;
+      sel.appendChild(opt);
+    });
+    _learn.loaded = true;
+    loadLearningEpisode(_learn.episodes[0]);
+  } catch(e) {
+    document.getElementById('learn-status').textContent = 'Error loading episodes.';
+  }
+}
+
+async function loadLearningEpisode(date) {
+  if (!date) return;
+  _learn.current = date;
+  document.getElementById('learn-status').textContent = 'Loading...';
+  try {
+    var resp = await fetch('/api/learning/episode/' + date + '?show_id=' + SHOW_ID);
+    _learn.data = await resp.json();
+    renderLearningHealth();
+    renderLearningFindings();
+    renderLearningSuggestions();
+    var banner = document.getElementById('learn-egregious-banner');
+    banner.style.display = _learn.data.is_egregious ? 'block' : 'none';
+    document.getElementById('learn-status').textContent = '';
+  } catch(e) {
+    document.getElementById('learn-status').textContent = 'Error loading data.';
+  }
+}
+
+function renderLearningHealth() {
+  var grid = document.getElementById('learn-health-grid');
+  var aa = _learn.data.audio_analysis || {};
+  var wc = aa.word_counts || {};
+  var hasData = Object.keys(wc).length > 0 && Object.values(wc).some(function(v) { return v > 0; });
+  var segs = _showFormat ? _showFormat.segments : [];
+  var html = '';
+  segs.forEach(function(s) {
+    var name = s.name, mins = s.minutes;
+    var budget = mins * 150;
+    var actual = wc[name] || 0;
+    var color, label;
+    if (!hasData) {
+      // No audio analysis data at all — grey "No data" state
+      color = '#6B7280';
+      label = 'No data';
+    } else {
+      var gapPercent = budget > 0 ? Math.round(Math.abs(actual - budget) / budget * 100) : null;
+      if (gapPercent === null) {
+        color = '#6B7280';
+        label = 'No data';
+      } else if (gapPercent <= 15) {
+        color = '#22c55e';
+        label = actual + '/' + budget;
+      } else if (gapPercent <= 40) {
+        color = '#f59e0b';
+        label = actual + '/' + budget;
+      } else {
+        color = '#ef4444';
+        label = actual + '/' + budget;
+      }
+    }
+    var pct = (hasData && budget > 0) ? Math.round((actual / budget) * 100) : 0;
+    var title = hasData ? actual + '/' + budget + ' words (' + pct + '%)' : 'No audio analysis data';
+    html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;" title="' + title + '">';
+    html += '<div style="width:10px;height:10px;border-radius:50%;background:' + color + ';display:inline-block;margin-bottom:4px;"></div>';
+    html += '<div style="font-size:12px;color:var(--text);font-weight:500;">' + esc(name) + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted);">' + label + '</div>';
+    html += '</div>';
+  });
+  grid.innerHTML = html;
+}
+
+function renderLearningFindings() {
+  var list = document.getElementById('learn-findings-list');
+  var findings = _learn.data.findings || [];
+  if (findings.length === 0) { list.innerHTML = '<p style="color:var(--muted);">No findings for this episode.</p>'; return; }
+  var html = '';
+  findings.forEach(function(f) {
+    var badge = f.severity === 'critical' ? '#ef4444' : f.severity === 'warning' ? '#f59e0b' : '#3b82f6';
+    html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">';
+    html += '<span style="background:' + badge + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;white-space:nowrap;">' + esc(f.severity.toUpperCase()) + '</span>';
+    html += '<span style="background:var(--bg);color:var(--muted);font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;">' + esc(f.job) + '</span>';
+    if (f.topic) html += '<span style="color:var(--accent);font-size:11px;font-weight:500;white-space:nowrap;">' + esc(f.topic) + '</span>';
+    html += '<span style="color:var(--text);flex:1;">' + esc(f.finding) + '</span>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function renderLearningSuggestions() {
+  var list = document.getElementById('learn-suggestions-list');
+  var suggestions = _learn.data.suggestions || [];
+  if (suggestions.length === 0) { list.innerHTML = '<p style="color:var(--muted);">No suggestions pending.</p>'; return; }
+  var html = '';
+  suggestions.forEach(function(s) {
+    var typeColor = s.type === 'prompt_edit' ? '#8b5cf6' : s.type === 'bad_episode_alert' ? '#ef4444' : s.type === 'subscription_flag' ? '#06b6d4' : '#f59e0b';
+    var statusBadge = s.status === 'approved' ? '<span style="color:#22c55e;font-size:10px;font-weight:600;">APPROVED</span>' :
+                      s.status === 'dismissed' ? '<span style="color:var(--muted);font-size:10px;font-weight:600;">DISMISSED</span>' :
+                      s.status === 'snoozed' ? '<span style="color:#f59e0b;font-size:10px;font-weight:600;">SNOOZED</span>' : '';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+    html += '<span style="background:' + typeColor + ';color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;font-weight:600;">' + esc(s.type.replace('_', ' ').toUpperCase()) + '</span>';
+    html += '<span style="font-weight:600;color:var(--text);flex:1;">' + esc(s.title) + '</span>';
+    html += statusBadge;
+    html += '</div>';
+    html += '<div class="learn-detail" id="learn-detail-' + s.id + '" style="display:none;margin:8px 0;padding:8px;background:var(--bg);border-radius:6px;font-size:12px;color:var(--text);">';
+    html += '<p>' + esc(s.detail) + '</p>';
+    if (s.type === 'prompt_edit' && s.current_value && s.suggested_value) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">';
+      html += '<div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Current</div><pre style="font-size:11px;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:4px;border:1px solid #ef444433;">' + esc(s.current_value) + '</pre></div>';
+      html += '<div><div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Suggested</div><pre style="font-size:11px;white-space:pre-wrap;background:var(--card);padding:8px;border-radius:4px;border:1px solid #22c55e33;">' + esc(s.suggested_value) + '</pre></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center;">';
+    html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);" onclick="toggleLearnDetail(' + s.id + ')">Details</button>';
+    if (s.status === 'pending') {
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:#22c55e;color:#fff;border:none;border-radius:4px;" onclick="learnAction(&apos;approve&apos;,' + s.id + ',this)">Approve</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);" onclick="learnAction(&apos;dismiss&apos;,' + s.id + ',this)">Dismiss</button>';
+      html += '<button style="font-size:11px;padding:2px 8px;cursor:pointer;background:none;border:1px solid var(--border);border-radius:4px;color:#f59e0b;" onclick="learnAction(&apos;snooze&apos;,' + s.id + ',this)">Snooze</button>';
+    }
+    html += '</div>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function toggleLearnDetail(id) {
+  var el = document.getElementById('learn-detail-' + id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function learnAction(action, suggestionId, btn) {
+  btn.disabled = true;
+  try {
+    var resp = await fetch('/api/learning/' + action + '-suggestion', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'suggestion_id=' + suggestionId + '&show_id=' + SHOW_ID
+    });
+    if (resp.ok) {
+      loadLearningEpisode(_learn.current);
+    } else {
+      var data = await resp.json();
+      alert(data.error || 'Action failed');
+      btn.disabled = false;
+    }
+  } catch(e) {
+    alert('Network error');
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
