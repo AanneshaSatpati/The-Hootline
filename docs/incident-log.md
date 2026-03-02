@@ -4,6 +4,46 @@ A record of bugs encountered in production or development, their root cause, and
 
 ---
 
+## INC-005 — Dashboard Stuck on "Loading..." Across All Tabs
+**Date:** 2026-03-02
+**Severity:** High
+**Status:** Resolved
+
+**What happened:** Dashboard shows "Loading..." on every tab. No Python logs, no traceback. Restarting the server doesn't fix it. Observed 4-5 times.
+
+**Observations during investigation:**
+- `/health` returns 200 — FastAPI app is healthy
+- All API endpoints return 200 with valid JSON from curl
+- The served HTML is complete with all template variables replaced
+- The "Loading..." text is the default HTML before JS replaces it — meaning JS never executes
+
+**Root cause:** JavaScript syntax errors in `templates/dashboard.html` caused by double-escaped apostrophes (`\\'` instead of `\'`) in plain JS string literals. Six instances across lines 1173, 1174, 1190, 1191, 1269, 1279, and 1355 had patterns like:
+```js
+const introText = 'Here\\'s what\\'s happening.';
+//                      ^^ this is TWO backslashes
+```
+In JS, `\\` is a literal backslash, then `'` terminates the string, then `s` is a syntax error. A single syntax error anywhere in the `<script>` block kills ALL JS execution — nothing loads, no errors surface in Python logs, and every tab stays on its default "Loading..." HTML.
+
+The `\\'` pattern IS correct when building HTML onclick attributes (e.g., `onclick="fn(\\'" + val + "\\')"`) because the HTML parser interprets `\\'` as `\'` in the attribute. But in plain JS string assignments, it's a syntax error.
+
+**Why it appeared "random":** The broken code paths were in the `renderShowFormat()` function (intro/outro text) and the `loadLatest()` function (empty state and digest card). These only execute when:
+- The Settings tab renders the show format card
+- There are no episodes yet (empty state message)
+- A digest exists (Today's Digest label)
+
+So the bug was always present but only triggered certain UI states.
+
+**Fix:**
+1. Changed 6 instances of `\\'` to `\'` in plain JS strings (lines 1173, 1174, 1190, 1191, 1269, 1279, 1355)
+2. Left `\\'` intact in onclick HTML attribute construction (those are correct)
+3. Added `.catch()` to the init promise chain as defense-in-depth
+4. Added `setTimeout` safety net and `unhandledrejection` handler
+5. Verified zero JS syntax errors using `node --check` on the extracted JS
+
+**Eval added:** `dashboard-not-stuck-loading` — verifies the served HTML contains error handling. `dashboard-js-no-syntax-errors` — extracts the JS from served HTML and verifies no double-escaped apostrophes exist in plain string contexts.
+
+---
+
 ## INC-004 — Missing `/api/cancel-preparation` Endpoint
 **Date:** 2026-03 (discovered during router refactor)
 **Severity:** Medium

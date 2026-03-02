@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-03-02T08:25:02Z",
-  "base_url": "http://localhost:8099",
-  "total": 35,
-  "passed": 35,
+  "timestamp": "2026-03-02T08:44:39Z",
+  "base_url": "http://localhost:5000",
+  "total": 37,
+  "passed": 37,
   "failed": 0,
   "results": [
     {
@@ -245,6 +245,20 @@
     },
     {
       "id": "all-dashboard-endpoints-reachable-health",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dashboard-not-stuck-loading",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dashboard-js-no-syntax-errors",
       "pass": true,
       "status_code": 200,
       "failures": [],

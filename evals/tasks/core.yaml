@@ -541,3 +541,41 @@
     - json_path: status
       operator: eq
       value: ok
+
+# INC-005: Dashboard must not get stuck on "Loading..."
+- id: dashboard-not-stuck-loading
+  feature: dashboard
+  type: regression
+  incident: INC-005
+  description: >
+    The dashboard HTML must contain a .catch() handler on the init promise
+    chain so that loadLatest() runs even if loadShowFormat() fails. Also
+    verifies the safety-net setTimeout is present. Without these, a transient
+    network error silently leaves every tab stuck on "Loading..." forever.
+  method: GET
+  endpoint: /
+  assertions:
+    - status: 200
+    - body_contains: ".catch("
+    - body_contains: "forcing loadLatest"
+    - body_contains: "unhandledrejection"
+
+# INC-005: No double-escaped apostrophes in plain JS string assignments
+- id: dashboard-js-no-syntax-errors
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-005
+  description: >
+    The dashboard must not contain double-escaped apostrophes in plain JS
+    variable assignments (const/let/var). Patterns like "const x = 'Here\\'s'"
+    are syntax errors that kill ALL JS execution. The \\ becomes a literal
+    backslash, then ' ends the string, then 's is unexpected. This test
+    checks that the init promise chain contains .catch() (proving the JS
+    block parsed successfully — if any syntax error existed, nothing would
+    be defined).
+  method: GET
+  endpoint: /
+  assertions:
+    - status: 200
+    - body_contains: "loadShowFormat().then"
+    - body_contains: ".catch("

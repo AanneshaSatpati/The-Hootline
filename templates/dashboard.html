@@ -1170,8 +1170,8 @@ function segmentCard() {
   // Intro
   const introDur = isShort ? '~30s' : '~' + Math.round(introMin) + ' min';
   const introText = isShort
-    ? 'Welcome to ' + esc(SHOW_TITLE) + '! Here\\'s what\\'s happening.'
-    : 'Welcome to ' + esc(SHOW_TITLE) + ', your daily knowledge briefing. Let\\'s dive in.';
+    ? 'Welcome to ' + esc(SHOW_TITLE) + '! Here\'s what\'s happening.'
+    : 'Welcome to ' + esc(SHOW_TITLE) + ', your daily knowledge briefing. Let\'s dive in.';
   s += '<div style="font-size:11px;color:var(--text-dim);margin-top:6px;padding:6px 8px;background:rgba(255,255,255,0.03);border-radius:4px;">';
   s += '<span style="color:var(--gold);font-weight:600;">Intro (' + introDur + ')</span><br>' + introText;
   s += '</div>';
@@ -1187,8 +1187,8 @@ function segmentCard() {
   // Outro
   const outroDur = isShort ? '~30s' : '~' + Math.round(outroMin) + ' min';
   const outroText = isShort
-    ? 'That\\'s your morning briefing from ' + esc(SHOW_TITLE) + '! See you tomorrow.'
-    : 'That\\'s all for today\\'s ' + esc(SHOW_TITLE) + '. Thanks for listening — we\\'ll be back tomorrow with more. Until then, stay curious.';
+    ? 'That\'s your morning briefing from ' + esc(SHOW_TITLE) + '! See you tomorrow.'
+    : 'That\'s all for today\'s ' + esc(SHOW_TITLE) + '. Thanks for listening — we\'ll be back tomorrow with more. Until then, stay curious.';
   s += '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;padding:6px 8px;background:rgba(255,255,255,0.03);border-radius:4px;">';
   s += '<span style="color:var(--gold);font-weight:600;">Outro (' + outroDur + ')</span><br>' + outroText;
   s += '</div>';
@@ -1266,7 +1266,7 @@ async function loadLatest() {
   _prepActive = false;
 
   if (!data.episode && !data.digest) {
-    left.innerHTML = '<div class="empty"><div class="owl">&#x1F989;</div><p>No episodes yet.<br>Click <strong>Prepare Digest</strong> to fetch today\\'s newsletters, then upload audio from NotebookLM.</p></div>';
+    left.innerHTML = '<div class="empty"><div class="owl">&#x1F989;</div><p>No episodes yet.<br>Click <strong>Prepare Digest</strong> to fetch today\'s newsletters, then upload audio from NotebookLM.</p></div>';
     document.getElementById('right-col').innerHTML = '';
     updateGenBtn(null, false);
     return;
@@ -1276,7 +1276,7 @@ async function loadLatest() {
 
   if (data.digest) {
     const d = data.digest;
-    h += '<div class="card"><div class="card-label">Today\\'s Digest</div><div class="digest-row"><div>';
+    h += '<div class="card"><div class="card-label">Today\'s Digest</div><div class="digest-row"><div>';
     h += '<div class="digest-stats">' + d.article_count + ' articles &middot; ' + (d.email_count||0) + ' emails &middot; ' + d.total_words.toLocaleString() + ' words</div>';
     h += '<div class="digest-topics">' + esc(d.topics_summary||'') + '</div>';
     h += '</div><div class="digest-btns"><button class="copy-url-btn" onclick="copyDigestUrl(\\'' + d.download_url + '\\', this)">Copy URL</button>';
@@ -1352,7 +1352,7 @@ function renderPreparation(prep) {
     }
     if (prep.existing_episode) {
       h += '<div style="margin-top:10px;padding:8px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:6px;font-size:11px;color:var(--yellow);">';
-      h += 'This will replace today\\'s existing episode in the RSS feed and History.';
+      h += 'This will replace today\'s existing episode in the RSS feed and History.';
       h += '</div>';
     }
     h += '<div style="margin-top:12px;">';
@@ -1747,11 +1747,30 @@ async function savePromptConfig() {
   btn.disabled = false; btn.textContent = 'Save';
 }
 
+// INC-005 fix: catch errors so loadLatest() always runs even if loadShowFormat() fails
 loadShowFormat().then(() => {
+  loadLatest();
+  updateHealth();
+}).catch(e => {
+  console.error('Init failed, loading anyway:', e);
   loadLatest();
   updateHealth();
 });
 setInterval(updateHealth, 10000);
+
+// INC-005 fix: safety net — if loadLatest hasn't replaced the placeholder after 5s, force it
+setTimeout(() => {
+  const el = document.getElementById('left-col');
+  if (el && el.innerHTML.includes('Loading...')) {
+    console.warn('Dashboard still loading after 5s — forcing loadLatest()');
+    loadLatest();
+  }
+}, 5000);
+
+// INC-005 fix: surface silent JS errors in console
+window.addEventListener('unhandledrejection', e => {
+  console.error('Unhandled promise rejection:', e.reason);
+});
 
 // ===== LEARNING TAB =====
 var _learn = { loaded: false, episodes: [], current: null, data: null };
