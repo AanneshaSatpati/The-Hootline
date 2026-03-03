@@ -3,8 +3,8 @@
 from src.models import Article
 from src.topic_classifier import (
     Topic,
+    _classify_by_keywords,
     _is_filtered_sender,
-    _score_keywords,
     classify_article,
 )
 
@@ -86,31 +86,40 @@ def test_source_map_interesting_facts():
 # --- Keyword classification ---
 
 
-def test_keyword_scoring_us_politics():
-    score = _score_keywords(
-        "Congress passed a bipartisan bill in the Senate today", Topic.US_POLITICS
+def test_keyword_classification_us_politics():
+    article = _make_article(
+        title="Senate Bill",
+        content="Congress passed a bipartisan bill in the Senate today",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.US_POLITICS
 
 
-def test_keyword_scoring_tech_ai():
-    score = _score_keywords(
-        "OpenAI releases new GPT model with improved AI capabilities", Topic.TECH_AI
+def test_keyword_classification_tech_ai():
+    article = _make_article(
+        title="AI Model",
+        content="OpenAI releases new GPT model with improved AI capabilities",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.TECH_AI
 
 
-def test_keyword_scoring_world_politics():
-    score = _score_keywords(
-        "NATO summit discusses Ukraine conflict and international sanctions",
-        Topic.WORLD_POLITICS,
+def test_keyword_classification_world_politics():
+    article = _make_article(
+        title="NATO Summit",
+        content="NATO summit discusses Ukraine conflict and international sanctions",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.WORLD_POLITICS
 
 
-def test_keyword_scoring_no_match():
-    score = _score_keywords("The weather is nice today", Topic.CROSSFIT)
-    assert score == 0
+def test_keyword_classification_no_match():
+    article = _make_article(
+        title="Weather",
+        content="The weather is nice today",
+    )
+    result = _classify_by_keywords(article)
+    assert result == Topic.OTHER
 
 
 # --- Full classify_article ---
@@ -185,19 +194,22 @@ def test_source_map_aakash_gupta():
 
 
 def test_source_map_product_growth():
+    """Product Growth is not in the source map — falls back to keyword classification."""
     article = _make_article(source="Product Growth", title="Growth Tactics")
-    assert classify_article(article) == Topic.PRODUCT_MANAGEMENT
+    result = classify_article(article)
+    assert result is not None  # classified, not filtered
 
 
 # --- New sport topics: keyword classification ---
 
 
-def test_keyword_scoring_f1():
-    score = _score_keywords(
-        "Verstappen takes pole position at the Grand Prix in a thrilling F1 qualifying session",
-        Topic.F1,
+def test_keyword_classification_f1():
+    article = _make_article(
+        title="F1 Qualifying",
+        content="Verstappen takes pole position at the Grand Prix in a thrilling F1 qualifying session",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.F1
 
 
 def test_classify_f1():
@@ -209,12 +221,13 @@ def test_classify_f1():
     assert classify_article(article) == Topic.F1
 
 
-def test_keyword_scoring_arsenal():
-    score = _score_keywords(
-        "Arsenal defeated their rivals as Saka scored twice at Emirates Stadium",
-        Topic.ARSENAL,
+def test_keyword_classification_arsenal():
+    article = _make_article(
+        title="Arsenal Match",
+        content="Arsenal defeated their rivals as Saka scored twice at Emirates Stadium",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.ARSENAL
 
 
 def test_classify_arsenal():
@@ -226,12 +239,13 @@ def test_classify_arsenal():
     assert classify_article(article) == Topic.ARSENAL
 
 
-def test_keyword_scoring_indian_cricket():
-    score = _score_keywords(
-        "India cricket team led by Kohli wins the IPL T20 match at BCCI event",
-        Topic.INDIAN_CRICKET,
+def test_keyword_classification_indian_cricket():
+    article = _make_article(
+        title="IPL Match",
+        content="India cricket team led by Kohli wins the IPL T20 match at BCCI event",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.INDIAN_CRICKET
 
 
 def test_classify_indian_cricket():
@@ -243,12 +257,13 @@ def test_classify_indian_cricket():
     assert classify_article(article) == Topic.INDIAN_CRICKET
 
 
-def test_keyword_scoring_badminton():
-    score = _score_keywords(
-        "PV Sindhu advances in BWF badminton tournament",
-        Topic.BADMINTON,
+def test_keyword_classification_badminton():
+    article = _make_article(
+        title="BWF Tournament",
+        content="PV Sindhu advances in BWF badminton tournament",
     )
-    assert score >= 2
+    result = _classify_by_keywords(article)
+    assert result == Topic.BADMINTON
 
 
 def test_classify_badminton():

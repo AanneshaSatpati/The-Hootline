@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-03-03T03:26:38Z",
+  "timestamp": "2026-03-03T04:22:00Z",
   "base_url": "http://localhost:5000",
-  "total": 40,
-  "passed": 40,
+  "total": 44,
+  "passed": 44,
   "failed": 0,
   "results": [
     {
@@ -282,6 +282,34 @@
       "id": "dashboard-template-not-stale",
       "pass": true,
       "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "test-suite-database-passes",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "foreign-keys-enforced",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "gcs-upload-errors-logged",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "ffmpeg-retry-on-transient-error",
+      "pass": true,
+      "status_code": 422,
       "failures": [],
       "response_snippet": ""
     }

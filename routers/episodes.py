@@ -340,36 +340,61 @@ async def _handle_upload(file: UploadFile, date: str, show_id: str):
         )
 
     if ext != ".mp3":
-        try:
-            logger.info("Converting %s (%d bytes) to MP3...", upload_path.name, upload_path.stat().st_size)
-            result = subprocess.run(
-                [_ffmpeg_path(), "-i", str(upload_path), "-codec:a", "libmp3lame", "-qscale:a", "2", "-y", str(mp3_path)],
-                capture_output=True, text=True, timeout=300,
-            )
-            upload_path.unlink(missing_ok=True)
-            if result.returncode != 0:
-                logger.error("ffmpeg failed (exit %d): %s", result.returncode, result.stderr[-500:])
+        FFMPEG_MAX_RETRIES = 3
+        FFMPEG_RETRY_DELAY = 2  # seconds
+        last_stderr = ""
+        for attempt in range(1, FFMPEG_MAX_RETRIES + 1):
+            try:
+                logger.info("Converting %s (%d bytes) to MP3 (attempt %d/%d)...",
+                            upload_path.name, upload_path.stat().st_size, attempt, FFMPEG_MAX_RETRIES)
+                result = subprocess.run(
+                    [_ffmpeg_path(), "-i", str(upload_path), "-codec:a", "libmp3lame", "-qscale:a", "2", "-y", str(mp3_path)],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if result.returncode == 0:
+                    logger.info("Converted %s to MP3 (%d bytes)", ext, mp3_path.stat().st_size)
+                    break
+                last_stderr = result.stderr[-500:]
+                # Retry on transient Nix store I/O errors (libjack.so.0 etc.)
+                if "cannot read file data" in result.stderr or "Input/output error" in result.stderr:
+                    logger.warning("ffmpeg transient I/O error (attempt %d/%d): %s",
+                                   attempt, FFMPEG_MAX_RETRIES, last_stderr[-200:])
+                    if attempt < FFMPEG_MAX_RETRIES:
+                        import time
+                        time.sleep(FFMPEG_RETRY_DELAY)
+                        continue
+                # Non-transient failure — don't retry
+                logger.error("ffmpeg failed (exit %d): %s", result.returncode, last_stderr)
+                upload_path.unlink(missing_ok=True)
                 mp3_path.unlink(missing_ok=True)
                 return JSONResponse(
                     {"error": f"Audio conversion failed: {result.stderr[-300:].strip()}"},
                     status_code=422,
                 )
-            logger.info("Converted %s to MP3 (%d bytes)", ext, mp3_path.stat().st_size)
-        except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired:
+                upload_path.unlink(missing_ok=True)
+                mp3_path.unlink(missing_ok=True)
+                return JSONResponse(
+                    {"error": "Audio conversion timed out (file may be too large)."},
+                    status_code=422,
+                )
+            except (FileNotFoundError, OSError) as e:
+                ffpath = _ffmpeg_path()
+                logger.error("ffmpeg error: %s. Resolved path: %s, which: %s", e, ffpath, shutil.which("ffmpeg"))
+                upload_path.unlink(missing_ok=True)
+                return JSONResponse(
+                    {"error": f"ffmpeg unavailable (path={ffpath}): {e}. Cannot convert audio."},
+                    status_code=500,
+                )
+        else:
+            # All retries exhausted on transient I/O error
             upload_path.unlink(missing_ok=True)
             mp3_path.unlink(missing_ok=True)
             return JSONResponse(
-                {"error": "Audio conversion timed out (file may be too large)."},
+                {"error": f"Audio conversion failed after {FFMPEG_MAX_RETRIES} attempts (transient I/O error). Try again or upload MP3 directly."},
                 status_code=422,
             )
-        except (FileNotFoundError, OSError) as e:
-            ffpath = _ffmpeg_path()
-            logger.error("ffmpeg error: %s. Resolved path: %s, which: %s", e, ffpath, shutil.which("ffmpeg"))
-            upload_path.unlink(missing_ok=True)
-            return JSONResponse(
-                {"error": f"ffmpeg unavailable (path={ffpath}): {e}. Cannot convert audio."},
-                status_code=500,
-            )
+        upload_path.unlink(missing_ok=True)
 
     try:
         from src.episode_manager import _ensure_mp3, _format_duration

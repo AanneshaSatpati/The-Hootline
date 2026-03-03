@@ -146,7 +146,11 @@ def test_parse_emails_falls_back_to_text():
             body_text=plain,
         ),
     ]
-    digest = parse_emails(emails)
+    # Mock classifier to avoid Gemini API call — we're testing HTML→text fallback, not classification
+    from unittest.mock import patch
+    from src.topic_classifier import Topic
+    with patch("src.content_parser.classify_articles_batch", return_value={0: Topic.OTHER}):
+        digest = parse_emails(emails)
     assert len(digest.articles) == 1
     assert "plain text newsletter" in digest.articles[0].content.lower()
 

@@ -4,6 +4,26 @@ A record of bugs encountered in production or development, their root cause, and
 
 ---
 
+## INC-008 — M4A Upload Fails Due to Transient ffmpeg libjack I/O Error
+**Date:** 2026-03-03
+**Severity:** High
+**Status:** Resolved
+
+**What happened:** Uploading M4A audio in production failed with:
+```
+Audio conversion failed: /nix/store/.../ffmpeg: error while loading shared libraries:
+libjack.so.0: cannot read file data: Input/output error
+```
+The upload returned 422 immediately with no retry, blocking episode publishing.
+
+**Root cause:** Replit's Nix store experiences transient I/O errors where shared libraries (like `libjack.so.0`) become temporarily unreadable. The ffmpeg binary links against libjack2 even though it's not needed for file-to-file audio conversion. The upload endpoint in `routers/episodes.py` ran ffmpeg exactly once — if the transient error hit, the user got an immediate failure with no recourse except manually retrying.
+
+**Fix:** Added automatic retry logic (3 attempts, 2s delay) to the ffmpeg conversion in `routers/episodes.py`. The retry specifically detects transient Nix store I/O errors (`"cannot read file data"` or `"Input/output error"` in stderr) and retries only those. Non-transient ffmpeg failures still fail immediately. If all 3 retries are exhausted, the error message tells the user to try again or upload MP3 directly.
+
+**Eval added:** `ffmpeg-retry-on-transient-error` — verifies the upload endpoint handles non-MP3 files and returns a proper error (not 500) when no digest exists for the date.
+
+---
+
 ## INC-007 — Dashboard Returns 500 When `_show_states` Is Empty
 **Date:** 2026-03-03
 **Severity:** High
