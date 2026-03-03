@@ -33,6 +33,10 @@ def _get_show_states():
 def _build_dashboard_html(show_id: str = "") -> str:
     """Build the dashboard HTML with the given show_id baked in."""
     _show_states = _get_show_states()
+
+    if not _show_states:
+        return "<html><body><h1>Starting up...</h1><p>Server is initializing. Please refresh in a few seconds.</p><script>setTimeout(()=>location.reload(),3000)</script></body></html>"
+
     _resolve_show = _get_resolve_show()
 
     if show_id and show_id in _show_states:

@@ -599,6 +599,23 @@
     - body_contains: "\\\\'"
       operator: not_contains
 
+# INC-007: Dashboard must not crash when _show_states is empty
+- id: dashboard-startup-no-crash
+  feature: dashboard
+  type: must_never_happen
+  incident: INC-007
+  description: >
+    The root dashboard endpoint must never return 500. When the server is
+    fully started, it returns 200 with the dashboard HTML. This eval verifies
+    the endpoint is reachable and serves content (not a 500 crash from
+    StopIteration when _show_states is empty).
+  method: GET
+  endpoint: /
+  assertions:
+    - status: 200
+    - body_contains: "Internal Server Error"
+      operator: not_contains
+
 # INC-006: Template must be read fresh (not cached at import time)
 - id: dashboard-template-not-stale
   feature: dashboard

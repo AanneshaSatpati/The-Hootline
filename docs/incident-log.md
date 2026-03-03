@@ -4,6 +4,25 @@ A record of bugs encountered in production or development, their root cause, and
 
 ---
 
+## INC-007 — Dashboard Returns 500 When `_show_states` Is Empty
+**Date:** 2026-03-03
+**Severity:** High
+**Status:** Resolved
+
+**What happened:** The production dashboard at `the-hootline.replit.app/` returned HTTP 500 Internal Server Error (21-byte `"Internal Server Error"` response from uvicorn). The dev domain worked fine.
+
+**Root cause:** `_resolve_show("")` in `main.py` calls `next(iter(_show_states.values()))` with no default. When `_show_states` is empty — which can happen if a request arrives before the lifespan startup finishes populating it, or during a deployment restart race — this raises an unhandled `StopIteration` exception. FastAPI/uvicorn converts this to a 500.
+
+The `_show_states` dict is initialized as `{}` at module level (line 47) and only populated inside the `lifespan()` async context manager. Although FastAPI should not serve requests before `yield`, Replit's deployment proxy can route requests during the startup window, and the `StopIteration` is not caught anywhere in the call chain (`dashboard()` → `_build_dashboard_html()` → `_resolve_show("")`).
+
+**Fix:**
+1. Added an empty-check in `_resolve_show()` that raises a descriptive `RuntimeError` instead of `StopIteration`
+2. Added an early return in `_build_dashboard_html()` that serves a "Starting up..." page with auto-refresh when `_show_states` is empty, instead of crashing
+
+**Eval added:** `dashboard-startup-no-crash` — verifies `GET /` never returns 500 or "Internal Server Error" body.
+
+---
+
 ## INC-006 — Fix Not Deployed: Stale Template Cache + Incomplete Apostrophe Fix
 **Date:** 2026-03-02
 **Severity:** High

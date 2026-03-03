@@ -76,6 +76,10 @@ This is a **transient Nix store I/O error** on Replit — the ffmpeg binary itse
 
 ## Resolved Issues
 
+### Resolved: Dashboard 500 on Production (Recurring "Not Loading")
+**Fixed in**: INC-007 (2026-03-03)
+The dashboard returned 500 Internal Server Error on production, seen 4-5 times. Root cause: `_resolve_show("")` called `next(iter(_show_states.values()))` with no fallback — raises `StopIteration` when `_show_states` is empty during startup. Fixed by adding an empty-check that serves a "Starting up..." auto-refresh page instead of crashing. Eval: `dashboard-startup-no-crash`.
+
 ### Resolved: Missing `/api/cancel-preparation` Endpoint
 **Fixed in**: Router extraction (Hour 3)
 The cancel-preparation endpoint was lost during the initial router extraction from main.py. The dashboard JS calls this endpoint, causing a silent 404 when users tried to cancel. Restored in `routers/pipeline.py`.

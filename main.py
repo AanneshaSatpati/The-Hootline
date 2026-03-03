@@ -53,6 +53,8 @@ def _resolve_show(show_id: str = "") -> ShowState:
     if show_id and show_id in _show_states:
         return _show_states[show_id]
     # Default to the first configured show
+    if not _show_states:
+        raise RuntimeError("Server is still starting up — no shows loaded yet.")
     return next(iter(_show_states.values()))
 
 

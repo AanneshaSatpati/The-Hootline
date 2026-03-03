@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-03-02T15:09:43Z",
+  "timestamp": "2026-03-03T03:26:38Z",
   "base_url": "http://localhost:5000",
-  "total": 39,
-  "passed": 39,
+  "total": 40,
+  "passed": 40,
   "failed": 0,
   "results": [
     {
@@ -266,6 +266,13 @@
     },
     {
       "id": "dashboard-no-double-escaped-quotes",
+      "pass": true,
+      "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "dashboard-startup-no-crash",
       "pass": true,
       "status_code": 200,
       "failures": [],
