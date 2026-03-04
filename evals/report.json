@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-03-03T04:22:00Z",
-  "base_url": "http://localhost:5000",
-  "total": 44,
-  "passed": 44,
+  "timestamp": "2026-03-04T05:15:09Z",
+  "base_url": "http://localhost:8000",
+  "total": 45,
+  "passed": 45,
   "failed": 0,
   "results": [
     {
@@ -303,6 +303,13 @@
       "id": "gcs-upload-errors-logged",
       "pass": true,
       "status_code": 200,
+      "failures": [],
+      "response_snippet": ""
+    },
+    {
+      "id": "ffmpeg-broad-transient-detection",
+      "pass": true,
+      "status_code": 422,
       "failures": [],
       "response_snippet": ""
     },

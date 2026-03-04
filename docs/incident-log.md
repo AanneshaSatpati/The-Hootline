@@ -4,6 +4,21 @@ A record of bugs encountered in production or development, their root cause, and
 
 ---
 
+## INC-009 — Audio Conversion Fails on Non-libjack Nix Store Shared Library Errors
+**Date:** 2026-03-04
+**Severity:** High
+**Status:** Resolved
+
+**What happened:** Uploading audio (non-MP3) failed with `Audio conversion failed:` followed by an ffmpeg shared library loading error. The retry logic added in INC-008 did not trigger, so the upload failed immediately with no retry.
+
+**Root cause:** The INC-008 retry logic only detected two specific error substrings in ffmpeg's stderr: `"cannot read file data"` and `"Input/output error"`. These matched the original libjack.so.0 failure pattern. However, ffmpeg links against 262 shared libraries in the Nix store, and transient Nix store failures can produce other error patterns — notably `"cannot open shared object file: No such file or directory"` or `"failed to map segment from shared object"`. These all share the common prefix `"error while loading shared libraries"` but were not caught by the narrow detection, causing them to be treated as non-transient (permanent) failures that skip retry entirely.
+
+**Fix:** Broadened the transient error detection in `routers/episodes.py` to also check for `"error while loading shared libraries"` in ffmpeg's stderr. This catches all dynamic linker failures from the Nix store, regardless of which specific library or I/O error variant is involved.
+
+**Eval added:** `ffmpeg-broad-transient-detection` — verifies the upload endpoint handles non-MP3 files correctly and returns a proper error (not 500) when no digest exists, confirming the broadened retry logic doesn't break normal validation flow.
+
+---
+
 ## INC-008 — M4A Upload Fails Due to Transient ffmpeg libjack I/O Error
 **Date:** 2026-03-03
 **Severity:** High

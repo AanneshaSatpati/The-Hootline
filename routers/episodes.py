@@ -355,8 +355,13 @@ async def _handle_upload(file: UploadFile, date: str, show_id: str):
                     logger.info("Converted %s to MP3 (%d bytes)", ext, mp3_path.stat().st_size)
                     break
                 last_stderr = result.stderr[-500:]
-                # Retry on transient Nix store I/O errors (libjack.so.0 etc.)
-                if "cannot read file data" in result.stderr or "Input/output error" in result.stderr:
+                # Retry on transient Nix store errors (shared library loading failures)
+                _is_transient = (
+                    "cannot read file data" in result.stderr
+                    or "Input/output error" in result.stderr
+                    or "error while loading shared libraries" in result.stderr
+                )
+                if _is_transient:
                     logger.warning("ffmpeg transient I/O error (attempt %d/%d): %s",
                                    attempt, FFMPEG_MAX_RETRIES, last_stderr[-200:])
                     if attempt < FFMPEG_MAX_RETRIES:

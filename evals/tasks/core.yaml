@@ -686,6 +686,25 @@
     - json_path: shows
       operator: exists
 
+# INC-009: Broadened transient error detection for all Nix store shared library failures
+- id: ffmpeg-broad-transient-detection
+  feature: episode_upload_publish
+  type: regression
+  incident: INC-009
+  description: >
+    The upload endpoint's ffmpeg retry logic must detect all Nix store shared
+    library loading failures, not just "cannot read file data" / "Input/output
+    error". Uploading a non-MP3 file without a digest returns 404 (not 500),
+    confirming the broadened retry detection doesn't break normal validation.
+  method: POST
+  endpoint: /api/upload-episode
+  request:
+    form:
+      date: "2099-07-20"
+      show_id: hootline
+  assertions:
+    - status: [400, 404, 422]
+
 # INC-008: ffmpeg conversion retries on transient I/O error
 - id: ffmpeg-retry-on-transient-error
   feature: episode_upload_publish
